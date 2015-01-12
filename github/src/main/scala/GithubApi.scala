@@ -1,11 +1,23 @@
 package scabot
 package github
 
-import akka.http.marshallers.sprayjson.SprayJsonSupport
 import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 
-trait GithubApi {
+trait GithubAuth {
+  val USER_AGENT = "github.com/typesafehub/scabot"
+
+  val token: String
+//
+//   private def makeAPIurl(uri: String) = url("https://api.github.com" + uri) <:< Map(
+//     "Authorization" -> s"token $token",
+//     "User-Agent" -> USER_AGENT)
+// 
+}
+
+trait GithubApi extends GithubApiTypes with GithubApiActions {}
+
+trait GithubApiTypes {
   type Date = Option[String]
 
   case class Repository(name: String, owner: User, git_url: String, updated_at: Date, created_at: Date, pushed_at: Date, url: Option[String] = None)
@@ -21,6 +33,9 @@ trait GithubApi {
   case class Comment(body: String, user: User, created_at: Date, updated_at: Date, id: String, url: Option[String] = None)
   case class CommitStatus(state: String, context: Option[String], description: Option[String] = None, target_url: Option[String] = None)
   case class PullRequestEvent(action: String, number: Int, pull_request: PullRequest)
+
+  case class Authorization(token: String, app: AuthApp, note: Option[String])
+  case class AuthApp(name: String, url: String)
 }
 
 object GithubJsonProtocol extends GithubApi with DefaultJsonProtocol {
@@ -40,10 +55,181 @@ object GithubJsonProtocol extends GithubApi with DefaultJsonProtocol {
 }
 
 
+
+
+trait GithubApiActions {
+  // /** Pulls in all the pull requests. */
+  // def pullrequests(user: String, repo: String): List[PullMini] = {
+  //   val url = makeAPIurl("/repos/%s/%s/pulls?per_page=100" format (user,repo))
+  //   val action = url >- parseJsonTo[List[PullMini]]
+  //   Http(action)
+  // }
+  //
+  // def closedPullrequests(user: String, repo: String): List[PullMini] = {
+  //   val url = makeAPIurl("/repos/%s/%s/pulls?per_page=100&state=closed" format (user,repo))
+  //   val action = url >- parseJsonTo[List[PullMini]]
+  //   Http(action)
+  // }
+  //
+  // /** Grabs the information for a single pull request. */
+  // def pullrequest(user: String, repo: String, number: String): Pull = {
+  //   val url = makeAPIurl("/repos/%s/%s/pulls/%s?per_page=100" format (user,repo,number))
+  //   val action = url >- parseJsonTo[Pull]
+  //   Http(action)
+  // }
+  //
+  // def pullrequestcomments(user: String, repo: String, number: String): List[Comment] = {
+  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/comments?per_page=100" format (user,repo,number))
+  //   val action = url >- parseJsonTo[List[Comment]]
+  //   Http(action)
+  // }
+  //
+  // def pullrequestcommits(user: String, repo: String, number: String): List[PRCommit] = {
+  //   val url = makeAPIurl("/repos/%s/%s/pulls/%s/commits?per_page=100" format (user,repo,number))
+  //   val action = url >- parseJsonTo[List[PRCommit]]
+  //   Http(action)
+  // }
+  //
+  // def addPRComment(user: String, repo: String, number: String, comment: String): Comment = {
+  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/comments" format (user, repo, number))
+  //   val json = IssueComment(comment).toJson
+  //   val action = (url.POST << json >- parseJsonTo[Comment])
+  //   Http(action)
+  // }
+  //
+  // // DELETE /repos/:owner/:repo/pulls/comments/:number
+  // def deletePRComment(user: String, repo: String, id: String): Unit = {
+  //   val url = makeAPIurl("/repos/%s/%s/pulls/comments/%s" format (user, repo, id))
+  //   val action = (url.copy(method="DELETE") >|)
+  //   Http(action)
+  // }
+  //
+  // // PATCH /repos/:owner/:repo/issues/comments/:id
+  // def editPRComment(user: String, repo: String, id: String, body: String): Comment = {
+  //   val url = makeAPIurl("/repos/%s/%s/issues/comments/%s" format (user, repo, id))
+  //   val json = IssueComment(body).toJson
+  //   val action = (url.copy(method="PATCH") << json >- parseJsonTo[Comment])
+  //   Http(action)
+  // }
+  //
+  // // most recent status comes first in the resulting list!
+  // def commitStatus(user: String, repo: String, commitsha: String): List[CommitStatus] = {
+  //   val url    = makeAPIurl("/repos/%s/%s/statuses/%s" format (user, repo, commitsha))
+  //   val action = url >- parseJsonTo[List[CommitStatus]]
+  //   Http(action)
+  // }
+  //
+  // def setCommitStatus(user: String, repo: String, commitsha: String, status: CommitStatus): CommitStatus = {
+  //   val url    = makeAPIurl("/repos/%s/%s/statuses/%s" format (user, repo, commitsha))
+  //   val json   = status.toJson
+  //   val action = (url.POST << json >- parseJsonTo[CommitStatus])
+  //   Http(action)
+  // }
+  //
+  // // POST /repos/:owner/:repo/issues/:number/labels
+  // def addLabel(user: String, repo: String, number: String, labels: List[String]): List[Label] = {
+  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/labels" format (user, repo, number))
+  //   val action = (url.POST << makeJson(labels) >- parseJsonTo[List[Label]])
+  //   Http(action)
+  // }
+  //
+  // // DELETE /repos/:owner/:repo/issues/:number/labels/:name
+  // def deleteLabel(user: String, repo: String, number: String, label: String) = {
+  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/labels/%s" format (user, repo, number, label))
+  //   Http(url.DELETE >|)
+  // }
+  //
+  // // GET /repos/:owner/:repo/issues/:number/labels
+  // def labels(user: String, repo: String, number: String): List[Label] = {
+  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/labels" format (user, repo, number))
+  //   val action = (url >- parseJsonTo[List[Label]])
+  //   Http(action)
+  // }
+  //
+  // // GET /repos/:owner/:repo/labels
+  // def allLabels(user: String, repo: String): List[Label] = {
+  //   val url = makeAPIurl("/repos/%s/%s/labels" format (user, repo))
+  //   val action = (url >- parseJsonTo[List[Label]])
+  //   Http(action)
+  // }
+  //
+  // // POST /repos/:owner/:repo/labels
+  // def createLabel(user: String, repo: String, label: Label): Label = {
+  //   val url = makeAPIurl("/repos/%s/%s/labels" format (user, repo))
+  //   val action = (url.POST << makeJson(label) >- parseJsonTo[Label])
+  //   Http(action)
+  // }
+  //
+  // // Create a commit comment
+  // // POST /repos/:owner/:repo/commits/:sha/comments
+  // def addCommitComment(user: String, repo: String, sha: String, comment: String): Comment = {
+  //   val url = makeAPIurl("/repos/%s/%s/commits/%s/comments" format (user, repo, sha))
+  //   val json = IssueComment(comment).toJson
+  //   val action = (url.POST << json >- parseJsonTo[Comment])
+  //   Http(action)
+  // }
+  //
+  // // List comments for a single commit
+  // // GET /repos/:owner/:repo/commits/:sha/comments
+  // def commitComments(user: String, repo: String, sha: String): List[Comment] = {
+  //   val url = makeAPIurl("/repos/%s/%s/commits/%s/comments" format (user,repo,sha))
+  //   val action = url >- parseJsonTo[List[Comment]]
+  //   Http(action)
+  // }
+  //
+  // // Normalize sha if it's not 40 chars
+  // // GET /repos/:owner/:repo/commits/:sha
+  // def normalizeSha(user: String, repo: String, sha: String): String =
+  //   if (sha.length == 40) sha
+  //   else try {
+  //     val url = makeAPIurl(s"/repos/$user/$repo/commits/$sha")
+  //     val action = url >- (x => parseJsonTo[PRCommit](x).sha)
+  //     Http(action)
+  //   } catch {
+  //     case e: Exception =>
+  //       println(s"Error: couldn't normalize $sha (for $user/$repo): "+ e)
+  //       sha
+  //   }
+  //
+  // // DELETE /repos/:owner/:repo/comments/:id
+  // def deleteCommitComment(user: String, repo: String, id: String): Unit = {
+  //   val url = makeAPIurl("/repos/%s/%s/comments/%s" format (user, repo, id))
+  //   val action = (url.copy(method="DELETE") >|)
+  //   Http(action)
+  // }
+  //
+  //
+  // //  GET /repos/:owner/:repo/milestones
+  // def repoMilestones(user: String, repo: String, state: String = "open"): List[Milestone] = {
+  //   val url = makeAPIurl("/repos/%s/%s/milestones?state=%s" format (user, repo, state))
+  //   val action = (url >- parseJsonTo[List[Milestone]])
+  //   Http(action)
+  // }
+  //
+  // // PATCH /repos/:owner/:repo/issues/:number
+  // def setMilestone(user: String, repo: String, number: String, milestone: Int) = {
+  //   val url = makeAPIurl("/repos/%s/%s/issues/%s" format (user, repo, number))
+  //   import net.liftweb.json._
+  //
+  //   val action = (url.copy(method="PATCH") << makeJson(JObject(List(JField("milestone", JInt(milestone))))) >| )
+  //   Http(action)
+  // }
+  //
+  // def issue(user: String, repo: String, number: String): Issue = {
+  //   val url = makeAPIurl("/repos/%s/%s/issues/%s" format (user,repo,number))
+  //   val action = url >- parseJsonTo[Issue]
+  //   Http(action)
+  // }
+
+}
+
+
+
+
 //// note: it looks like the buildbot github user needs administrative permission to create labels,
 //// but also to set the commit status
 //object Authenticate {
-//  val USER_AGENT = "github.com/typesafehub/scabot"
+//
 //  private[this] val authorizations = :/("api.github.com").secure / "authorizations" <:< Map("User-Agent" -> USER_AGENT)
 //
 //  val authScopes = """{
@@ -80,187 +266,7 @@ object GithubJsonProtocol extends GithubApi with DefaultJsonProtocol {
 //    }
 //}
 //
-//
-//class API(val token: String, val userName: String) {
-//  import Authenticate.USER_AGENT
-//
-//  private def makeAPIurl(uri: String) = url("https://api.github.com" + uri) <:< Map(
-//    "Authorization" -> "token %s".format(token),
-//    "User-Agent" -> USER_AGENT)
-//
-//
-//  /** Pulls in all the pull requests. */
-//  def pullrequests(user: String, repo: String): List[PullMini] = {
-//    val url = makeAPIurl("/repos/%s/%s/pulls?per_page=100" format (user,repo))
-//    val action = url >- parseJsonTo[List[PullMini]]
-//    Http(action)
-//  }
-//
-//  def closedPullrequests(user: String, repo: String): List[PullMini] = {
-//    val url = makeAPIurl("/repos/%s/%s/pulls?per_page=100&state=closed" format (user,repo))
-//    val action = url >- parseJsonTo[List[PullMini]]
-//    Http(action)
-//  }
-//
-//  /** Grabs the information for a single pull request. */
-//  def pullrequest(user: String, repo: String, number: String): Pull = {
-//    val url = makeAPIurl("/repos/%s/%s/pulls/%s?per_page=100" format (user,repo,number))
-//    val action = url >- parseJsonTo[Pull]
-//    Http(action)
-//  }
-//
-//  def pullrequestcomments(user: String, repo: String, number: String): List[Comment] = {
-//    val url = makeAPIurl("/repos/%s/%s/issues/%s/comments?per_page=100" format (user,repo,number))
-//    val action = url >- parseJsonTo[List[Comment]]
-//    Http(action)
-//  }
-//
-//  def pullrequestcommits(user: String, repo: String, number: String): List[PRCommit] = {
-//    val url = makeAPIurl("/repos/%s/%s/pulls/%s/commits?per_page=100" format (user,repo,number))
-//    val action = url >- parseJsonTo[List[PRCommit]]
-//    Http(action)
-//  }
-//
-//  def addPRComment(user: String, repo: String, number: String, comment: String): Comment = {
-//    val url = makeAPIurl("/repos/%s/%s/issues/%s/comments" format (user, repo, number))
-//    val json = IssueComment(comment).toJson
-//    val action = (url.POST << json >- parseJsonTo[Comment])
-//    Http(action)
-//  }
-//
-//  // DELETE /repos/:owner/:repo/pulls/comments/:number
-//  def deletePRComment(user: String, repo: String, id: String): Unit = {
-//    val url = makeAPIurl("/repos/%s/%s/pulls/comments/%s" format (user, repo, id))
-//    val action = (url.copy(method="DELETE") >|)
-//    Http(action)
-//  }
-//
-//  // PATCH /repos/:owner/:repo/issues/comments/:id
-//  def editPRComment(user: String, repo: String, id: String, body: String): Comment = {
-//    val url = makeAPIurl("/repos/%s/%s/issues/comments/%s" format (user, repo, id))
-//    val json = IssueComment(body).toJson
-//    val action = (url.copy(method="PATCH") << json >- parseJsonTo[Comment])
-//    Http(action)
-//  }
-//
-//  // most recent status comes first in the resulting list!
-//  def commitStatus(user: String, repo: String, commitsha: String): List[CommitStatus] = {
-//    val url    = makeAPIurl("/repos/%s/%s/statuses/%s" format (user, repo, commitsha))
-//    val action = url >- parseJsonTo[List[CommitStatus]]
-//    Http(action)
-//  }
-//
-//  def setCommitStatus(user: String, repo: String, commitsha: String, status: CommitStatus): CommitStatus = {
-//    val url    = makeAPIurl("/repos/%s/%s/statuses/%s" format (user, repo, commitsha))
-//    val json   = status.toJson
-//    val action = (url.POST << json >- parseJsonTo[CommitStatus])
-//    Http(action)
-//  }
-//
-//  // POST /repos/:owner/:repo/issues/:number/labels
-//  def addLabel(user: String, repo: String, number: String, labels: List[String]): List[Label] = {
-//    val url = makeAPIurl("/repos/%s/%s/issues/%s/labels" format (user, repo, number))
-//    val action = (url.POST << makeJson(labels) >- parseJsonTo[List[Label]])
-//    Http(action)
-//  }
-//
-//  // DELETE /repos/:owner/:repo/issues/:number/labels/:name
-//  def deleteLabel(user: String, repo: String, number: String, label: String) = {
-//    val url = makeAPIurl("/repos/%s/%s/issues/%s/labels/%s" format (user, repo, number, label))
-//    Http(url.DELETE >|)
-//  }
-//
-//  // GET /repos/:owner/:repo/issues/:number/labels
-//  def labels(user: String, repo: String, number: String): List[Label] = {
-//    val url = makeAPIurl("/repos/%s/%s/issues/%s/labels" format (user, repo, number))
-//    val action = (url >- parseJsonTo[List[Label]])
-//    Http(action)
-//  }
-//
-//  // GET /repos/:owner/:repo/labels
-//  def allLabels(user: String, repo: String): List[Label] = {
-//    val url = makeAPIurl("/repos/%s/%s/labels" format (user, repo))
-//    val action = (url >- parseJsonTo[List[Label]])
-//    Http(action)
-//  }
-//
-//  // POST /repos/:owner/:repo/labels
-//  def createLabel(user: String, repo: String, label: Label): Label = {
-//    val url = makeAPIurl("/repos/%s/%s/labels" format (user, repo))
-//    val action = (url.POST << makeJson(label) >- parseJsonTo[Label])
-//    Http(action)
-//  }
-//
-//  // Create a commit comment
-//  // POST /repos/:owner/:repo/commits/:sha/comments
-//  def addCommitComment(user: String, repo: String, sha: String, comment: String): Comment = {
-//    val url = makeAPIurl("/repos/%s/%s/commits/%s/comments" format (user, repo, sha))
-//    val json = IssueComment(comment).toJson
-//    val action = (url.POST << json >- parseJsonTo[Comment])
-//    Http(action)
-//  }
-//
-//  // List comments for a single commit
-//  // GET /repos/:owner/:repo/commits/:sha/comments
-//  def commitComments(user: String, repo: String, sha: String): List[Comment] = {
-//    val url = makeAPIurl("/repos/%s/%s/commits/%s/comments" format (user,repo,sha))
-//    val action = url >- parseJsonTo[List[Comment]]
-//    Http(action)
-//  }
-//
-//  // Normalize sha if it's not 40 chars
-//  // GET /repos/:owner/:repo/commits/:sha
-//  def normalizeSha(user: String, repo: String, sha: String): String =
-//    if (sha.length == 40) sha
-//    else try {
-//      val url = makeAPIurl(s"/repos/$user/$repo/commits/$sha")
-//      val action = url >- (x => parseJsonTo[PRCommit](x).sha)
-//      Http(action)
-//    } catch {
-//      case e: Exception =>
-//        println(s"Error: couldn't normalize $sha (for $user/$repo): "+ e)
-//        sha
-//    }
-//
-//  // DELETE /repos/:owner/:repo/comments/:id
-//  def deleteCommitComment(user: String, repo: String, id: String): Unit = {
-//    val url = makeAPIurl("/repos/%s/%s/comments/%s" format (user, repo, id))
-//    val action = (url.copy(method="DELETE") >|)
-//    Http(action)
-//  }
-//
-//
-//  //  GET /repos/:owner/:repo/milestones
-//  def repoMilestones(user: String, repo: String, state: String = "open"): List[Milestone] = {
-//    val url = makeAPIurl("/repos/%s/%s/milestones?state=%s" format (user, repo, state))
-//    val action = (url >- parseJsonTo[List[Milestone]])
-//    Http(action)
-//  }
-//
-//  // PATCH /repos/:owner/:repo/issues/:number
-//  def setMilestone(user: String, repo: String, number: String, milestone: Int) = {
-//    val url = makeAPIurl("/repos/%s/%s/issues/%s" format (user, repo, number))
-//    import net.liftweb.json._
-//
-//    val action = (url.copy(method="PATCH") << makeJson(JObject(List(JField("milestone", JInt(milestone))))) >| )
-//    Http(action)
-//  }
-//
-//  def issue(user: String, repo: String, number: String): Issue = {
-//    val url = makeAPIurl("/repos/%s/%s/issues/%s" format (user,repo,number))
-//    val action = url >- parseJsonTo[Issue]
-//    Http(action)
-//  }
-//
-//}
 
-//object API {
-//  def apply(auth: Authorization, user: String): API =
-//    new API(auth.token, user)
-//
-//  def fromUser(user: String, pw: String): API =
-//    apply(Authenticate.authenticate(user, pw), user)
-//}
 //
 //object makeJson { def apply(x: Any): String = ??? }
 //

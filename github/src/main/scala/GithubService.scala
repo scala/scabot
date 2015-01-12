@@ -17,9 +17,6 @@ import scala.concurrent.ExecutionContext
  * Created by adriaan on 1/11/15.
  */
 trait Service extends core.Service {
-
-//  lazy val actor = system.actorOf(Props[ServiceActor])
-
   import akka.pattern.ask
   import scala.concurrent.duration._
   implicit val timeout = Timeout(2.seconds)
@@ -27,10 +24,6 @@ trait Service extends core.Service {
   import GithubJsonProtocol._
   import akka.http.marshallers.sprayjson.SprayJsonSupport._
 
-  // needed for marshalling implicits!!
-//  implicit def _system: ActorSystem = system
-  implicit val materializer = FlowMaterializer()
-  implicit def ec: ExecutionContext = ???
 
 
   // X-Github-Event:

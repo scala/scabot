@@ -13,10 +13,8 @@ trait Server { self: core.Service =>
   implicit def system: ActorSystem = ActorSystem("scabot")
 
   def startServer = {
-    implicit val materializer = FlowMaterializer()
     implicit val routingSettings = RoutingSettings(system)
-    implicit val ec: ExecutionContext = system.dispatcher
-    implicit val routingSetup = RoutingSetup.apply
+    implicit val routingSetup    = RoutingSetup.apply
 
     val serverBinding = Http(system).bind(interface = "localhost", port = 8080)
 
@@ -26,12 +24,18 @@ trait Server { self: core.Service =>
       connection.handleWith(Route.handlerFlow(serviceRoute))
     }
   }
-
-  sys.addShutdownHook(system.shutdown())
 }
 
-object scabot extends Server with github.Service {
-  def main (args: Array[String]): Unit = {
-    startServer
+import akka.kernel.Bootable
+
+class Scabot extends Bootable with Server with github.Service {
+
+  def startup = {
+     // system.actorOf(Props[HelloActor]) ! Start
+     startServer
   }
+ 
+ def shutdown = {
+   system.shutdown()
+ }
 }
