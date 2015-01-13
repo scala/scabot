@@ -17,166 +17,138 @@ trait GithubAuth {
 
 trait GithubApi extends GithubApiTypes with GithubApiActions {}
 
+// definitions in topo-order, no cycles in dependencies
 trait GithubApiTypes {
-  type Date = Option[String]
+  type Date = Option[Either[String, Long]]
 
-  case class Repository(name: String, owner: User, git_url: String, updated_at: Date, created_at: Date, pushed_at: Date, url: Option[String] = None)
-  case class User(login: String, name: Option[String], email: Option[String], repository: Option[Repository])
-  case class PullRequest(number: Int, state: String, title: String, body: String, created_at: Date, updated_at: Date, closed_at: Date, merged_at:  Date, head: GitRef, base: GitRef, user: User, mergeable: Option[Boolean], merged_by: User) //, comments: Int, commits: Int, additions: Int, deletions: Int, changed_files: Int)
-  case class Issue(number: Int, state: String, title: String, body: String, user: User, labels: List[Label], assignee: User, milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date)
+  case class User(login: String)
+  case class Author(name: String, email: String) // , username: Option[String]
+  
+  case class Repository(name: String, full_name: String, git_url: String, updated_at: Date, created_at: Date, pushed_at: Date) // owner: Either[User, Author] 
+
+  case class GitRef(sha: String, label: String, ref: String, repo: Repository, user: User)
+  
+  case class PullRequest(number: Int, state: String, title: String, body: String, created_at: Date, updated_at: Date, closed_at: Date, merged_at:  Date, head: GitRef, base: GitRef, user: User, mergeable: Option[Boolean], merged_by: Option[User]) //, comments: Int, commits: Int, additions: Int, deletions: Int, changed_files: Int)
+
   case class Label(name: String, color: String, url: Option[String] = None)
   case class Milestone(number: Int, state: String, title: String, description: String, creator: User, created_at: Date, updated_at: Date, closed_at: Date, due_on: Option[Date])
-  case class GitRef(sha: String, label: String, ref: String, repo: Repository, user: User)
-  case class PRCommit(sha: String, commit: CommitInfo, url: Option[String] = None)
-  case class CommitInfo(committer: CommitAuthor, author: CommitAuthor, message: String)
-  case class CommitAuthor(name: String, email: String, date: String)
-  case class Comment(body: String, user: User, created_at: Date, updated_at: Date, id: String, url: Option[String] = None)
-  case class CommitStatus(state: String, context: Option[String], description: Option[String] = None, target_url: Option[String] = None)
+  case class Issue(number: Int, state: String, title: String, body: String, user: User, labels: List[Label], assignee: Option[User], milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date)
+
+  case class CommitInfo(distinct: Boolean, message: String, timestamp: Date, author: Author, committer: Author, added: List[String], removed: List[String], modified: List[String])
+  case class Commit(sha: String, commit: CommitInfo, url: Option[String] = None)
+  case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None)
+
+  case class IssueComment(body: String, user: User, created_at: Date, updated_at: Date, id: Option[Long] = None)
+  case class PullRequestComment(body: String, user: User, commit_id: String, path: String, position: Int, created_at: Date, updated_at: Date, id: Option[Long] = None) // diff_hunk, original_position, original_commit_id
+
   case class PullRequestEvent(action: String, number: Int, pull_request: PullRequest)
+  case class PushEvent(ref: String, before: String, after: String, created: Boolean, deleted: Boolean, forced: Boolean, base_ref: Option[String], commits: List[CommitInfo], head_commit: CommitInfo, repository: Repository, pusher: Author)
+  case class PullRequestReviewCommentEvent(action: String, pull_request: PullRequest, comment: PullRequestComment, repository: Repository)
 
-  case class Authorization(token: String, app: AuthApp, note: Option[String])
+  case class IssueCommentEvent(action: String, issue: Issue, comment: IssueComment, repository: Repository)
+
   case class AuthApp(name: String, url: String)
+  case class Authorization(token: String, app: AuthApp, note: Option[String])
 }
 
-object GithubJsonProtocol extends GithubApi with DefaultJsonProtocol {
-  implicit lazy val _fmtRepository       : RootJsonFormat[Repository]       = jsonFormat7(Repository)
-  implicit lazy val _fmtUser             : RootJsonFormat[User]             = jsonFormat4(User)
-  implicit lazy val _fmtPullRequest      : RootJsonFormat[PullRequest]      = jsonFormat13(PullRequest)
-  implicit lazy val _fmtIssue            : RootJsonFormat[Issue]            = jsonFormat11(Issue)
-  implicit lazy val _fmtLabel            : RootJsonFormat[Label]            = jsonFormat3(Label)
-  implicit lazy val _fmtMilestone        : RootJsonFormat[Milestone]        = jsonFormat9(Milestone)
-  implicit lazy val _fmtGitRef           : RootJsonFormat[GitRef]           = jsonFormat5(GitRef)
-  implicit lazy val _fmtPRCommit         : RootJsonFormat[PRCommit]         = jsonFormat3(PRCommit)
-  implicit lazy val _fmtCommitInfo       : RootJsonFormat[CommitInfo]       = jsonFormat3(CommitInfo)
-  implicit lazy val _fmtCommitAuthor     : RootJsonFormat[CommitAuthor]     = jsonFormat3(CommitAuthor)
-  implicit lazy val _fmtComment          : RootJsonFormat[Comment]          = jsonFormat6(Comment)
-  implicit lazy val _fmtCommitStatus     : RootJsonFormat[CommitStatus]     = jsonFormat4(CommitStatus)
-  implicit lazy val _fmtPullRequestEvent : RootJsonFormat[PullRequestEvent] = jsonFormat3(PullRequestEvent)
+// TODO: can we make this more debuggable?
+// TODO: test against https://github.com/github/developer.github.com/tree/master/lib/webhooks
+trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { type RJF[x] = RootJsonFormat[x]
+  implicit lazy val _fmtUser             : RJF[User]                          = jsonFormat1(User)
+  implicit lazy val _fmtAuthor           : RJF[Author]                        = jsonFormat2(Author)
+  implicit lazy val _fmtRepository       : RJF[Repository]                    = jsonFormat6(Repository)
+
+  implicit lazy val _fmtGitRef           : RJF[GitRef]                        = jsonFormat5(GitRef)
+
+  implicit lazy val _fmtPullRequest      : RJF[PullRequest]                   = jsonFormat13(PullRequest)
+
+  implicit lazy val _fmtLabel            : RJF[Label]                         = jsonFormat3(Label)
+  implicit lazy val _fmtMilestone        : RJF[Milestone]                     = jsonFormat9(Milestone)
+  implicit lazy val _fmtIssue            : RJF[Issue]                         = jsonFormat11(Issue)
+
+  implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat8(CommitInfo)
+  implicit lazy val _fmtCommit           : RJF[Commit]                        = jsonFormat3(Commit)
+  implicit lazy val _fmtCommitStatus     : RJF[CommitStatus]                  = jsonFormat4(CommitStatus)
+
+  implicit lazy val _fmtIssueComment     : RJF[IssueComment]                  = jsonFormat5(IssueComment)
+  implicit lazy val _fmtPullRequestComment: RJF[PullRequestComment]           = jsonFormat8(PullRequestComment)
+
+  implicit lazy val _fmtPullRequestEvent : RJF[PullRequestEvent]              = jsonFormat3(PullRequestEvent)
+  implicit lazy val _fmtPushEvent        : RJF[PushEvent]                     = jsonFormat11(PushEvent)
+  implicit lazy val _fmtPRCommentEvent   : RJF[PullRequestReviewCommentEvent] = jsonFormat4(PullRequestReviewCommentEvent)
+  implicit lazy val _fmtIssueCommentEvent: RJF[IssueCommentEvent]             = jsonFormat4(IssueCommentEvent)
+
+  implicit lazy val _fmtAuthorization    : RJF[Authorization]                 = jsonFormat3(Authorization)
+  implicit lazy val _fmtAuthApp          : RJF[AuthApp]                       = jsonFormat2(AuthApp)
 }
 
 
+trait HTTPClient {
+  import akka.http.client.pipelining._
+
+  implicit def ec: ExecutionContext
+
+  lazy val hostConnector = 
+    HostConnectorSetup(host = "api.github.com", sslEncryption = true, defaultHeaders = List(Authorization())) // "Accept" -> "application/vnd.github.v3+json"
+
+  def credentials: HttpCredentials
+
+  def pipeline[T]: HttpRequest => Future[T] = (
+    //    addHeader("X-My-Special-Header", "fancy-value")
+       addCredentials(credentials)
+    ~> sendReceive
+    ~> unmarshal[T]
+  )
 
 
-trait GithubApiActions {
-  // /** Pulls in all the pull requests. */
-  // def pullrequests(user: String, repo: String): List[PullMini] = {
-  //   val url = makeAPIurl("/repos/%s/%s/pulls?per_page=100" format (user,repo))
-  //   val action = url >- parseJsonTo[List[PullMini]]
-  //   Http(action)
-  // }
-  //
-  // def closedPullrequests(user: String, repo: String): List[PullMini] = {
-  //   val url = makeAPIurl("/repos/%s/%s/pulls?per_page=100&state=closed" format (user,repo))
-  //   val action = url >- parseJsonTo[List[PullMini]]
-  //   Http(action)
-  // }
-  //
-  // /** Grabs the information for a single pull request. */
-  // def pullrequest(user: String, repo: String, number: String): Pull = {
-  //   val url = makeAPIurl("/repos/%s/%s/pulls/%s?per_page=100" format (user,repo,number))
-  //   val action = url >- parseJsonTo[Pull]
-  //   Http(action)
-  // }
-  //
-  // def pullrequestcomments(user: String, repo: String, number: String): List[Comment] = {
-  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/comments?per_page=100" format (user,repo,number))
-  //   val action = url >- parseJsonTo[List[Comment]]
-  //   Http(action)
-  // }
-  //
-  // def pullrequestcommits(user: String, repo: String, number: String): List[PRCommit] = {
-  //   val url = makeAPIurl("/repos/%s/%s/pulls/%s/commits?per_page=100" format (user,repo,number))
-  //   val action = url >- parseJsonTo[List[PRCommit]]
-  //   Http(action)
-  // }
-  //
-  // def addPRComment(user: String, repo: String, number: String, comment: String): Comment = {
-  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/comments" format (user, repo, number))
-  //   val json = IssueComment(comment).toJson
-  //   val action = (url.POST << json >- parseJsonTo[Comment])
-  //   Http(action)
-  // }
-  //
-  // // DELETE /repos/:owner/:repo/pulls/comments/:number
-  // def deletePRComment(user: String, repo: String, id: String): Unit = {
-  //   val url = makeAPIurl("/repos/%s/%s/pulls/comments/%s" format (user, repo, id))
-  //   val action = (url.copy(method="DELETE") >|)
-  //   Http(action)
-  // }
-  //
-  // // PATCH /repos/:owner/:repo/issues/comments/:id
-  // def editPRComment(user: String, repo: String, id: String, body: String): Comment = {
-  //   val url = makeAPIurl("/repos/%s/%s/issues/comments/%s" format (user, repo, id))
-  //   val json = IssueComment(body).toJson
-  //   val action = (url.copy(method="PATCH") << json >- parseJsonTo[Comment])
-  //   Http(action)
-  // }
-  //
-  // // most recent status comes first in the resulting list!
-  // def commitStatus(user: String, repo: String, commitsha: String): List[CommitStatus] = {
-  //   val url    = makeAPIurl("/repos/%s/%s/statuses/%s" format (user, repo, commitsha))
-  //   val action = url >- parseJsonTo[List[CommitStatus]]
-  //   Http(action)
-  // }
-  //
-  // def setCommitStatus(user: String, repo: String, commitsha: String, status: CommitStatus): CommitStatus = {
-  //   val url    = makeAPIurl("/repos/%s/%s/statuses/%s" format (user, repo, commitsha))
-  //   val json   = status.toJson
-  //   val action = (url.POST << json >- parseJsonTo[CommitStatus])
-  //   Http(action)
-  // }
-  //
-  // // POST /repos/:owner/:repo/issues/:number/labels
-  // def addLabel(user: String, repo: String, number: String, labels: List[String]): List[Label] = {
-  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/labels" format (user, repo, number))
-  //   val action = (url.POST << makeJson(labels) >- parseJsonTo[List[Label]])
-  //   Http(action)
-  // }
-  //
-  // // DELETE /repos/:owner/:repo/issues/:number/labels/:name
-  // def deleteLabel(user: String, repo: String, number: String, label: String) = {
-  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/labels/%s" format (user, repo, number, label))
-  //   Http(url.DELETE >|)
-  // }
-  //
-  // // GET /repos/:owner/:repo/issues/:number/labels
-  // def labels(user: String, repo: String, number: String): List[Label] = {
-  //   val url = makeAPIurl("/repos/%s/%s/issues/%s/labels" format (user, repo, number))
-  //   val action = (url >- parseJsonTo[List[Label]])
-  //   Http(action)
-  // }
-  //
-  // // GET /repos/:owner/:repo/labels
-  // def allLabels(user: String, repo: String): List[Label] = {
-  //   val url = makeAPIurl("/repos/%s/%s/labels" format (user, repo))
-  //   val action = (url >- parseJsonTo[List[Label]])
-  //   Http(action)
-  // }
-  //
-  // // POST /repos/:owner/:repo/labels
-  // def createLabel(user: String, repo: String, label: Label): Label = {
-  //   val url = makeAPIurl("/repos/%s/%s/labels" format (user, repo))
-  //   val action = (url.POST << makeJson(label) >- parseJsonTo[Label])
-  //   Http(action)
-  // }
-  //
-  // // Create a commit comment
-  // // POST /repos/:owner/:repo/commits/:sha/comments
-  // def addCommitComment(user: String, repo: String, sha: String, comment: String): Comment = {
-  //   val url = makeAPIurl("/repos/%s/%s/commits/%s/comments" format (user, repo, sha))
-  //   val json = IssueComment(comment).toJson
-  //   val action = (url.POST << json >- parseJsonTo[Comment])
-  //   Http(action)
-  // }
-  //
-  // // List comments for a single commit
-  // // GET /repos/:owner/:repo/commits/:sha/comments
-  // def commitComments(user: String, repo: String, sha: String): List[Comment] = {
-  //   val url = makeAPIurl("/repos/%s/%s/commits/%s/comments" format (user,repo,sha))
-  //   val action = url >- parseJsonTo[List[Comment]]
-  //   Http(action)
-  // }
-  //
+  type N[x] = Future[List[x]]
+  type A[x] = List[x]
+  def p[T, Res[x]](req: HttpRequest): Res[T] = pipelineThatShit
+
+}
+
+trait GithubApiActions extends HTTPClient with GithubJsonProtocol {
+  case class GithubToken(token: String) extends HttpCredentials {
+    def render[R <: Rendering](r: R): r.type = r ~~ "token " ~~ token
+  }
+
+  def credentials = new GithubToken(token)
+  
+  class For(user: String, repo: String) {
+    implicit class SlashyString(_str: String) = { def /(o: Any) = _str +"/"+ o.toString }
+    def api = s"/repos/$user/$repo"
+    
+    def pullRequests: N[PullRequest]                  = p(Get(Uri(api / "pulls")))
+    def closedPullRequests: N[PullRequest]            = p(Get(Uri(api / "pulls") withQuery Map("state" -> "closed")))
+    def pullRequest(number: String): A[PullRequest]   = p(Get(Uri(api / "pulls" / number)))
+    def pullRequestCommits(number: String): N[Commit] = p(Get(Uri(api / "pulls" / number / "commits")))
+    def deletePRComment(id: String)                   = p(Delete(Uri(api / "pulls" / "comments" / id)))
+
+    def pullRequestComments(number: String): N[PullRequestComment]            = p(Get(Uri(api / "issues" / number / "comments")))
+    def addPRComment(number: String, comment: IssueComment): A[IssueComment]  = p(Post(Uri(api / "issues" / number / "comments", comment)))
+    def issue(number: String): A[Issue]                                       = p(Get(Uri(api / "issues" / number)))
+    def setMilestone(number: String, milestone: Int)                          = p(Patch(Uri(api / "issues" / number, JObject(List(JField("milestone", JInt(milestone)))))))
+    def addLabel(number: String, labels: List[Label]): A[Label]               = p(Post(Uri(api / "issues" / number / "labels", labels)))
+    def deleteLabel(number: String, label: String)                            = p(Delete(Uri(api / "issues" / number / "labels" / label)))
+    def labels(number: String): N[Label]                                      = p(Get(Uri(api / "issues" / number / "labels")))
+
+    // most recent status comes first in the resulting list!
+    def commitStatus(sha: String): N[CommitStatus]                            = p(Get(Uri(api / "statuses" / sha)))
+    def setCommitStatus(sha: String, status: CommitStatus):  A[CommitStatus]  = p(Post(Uri(api / "statuses" / sha)))
+
+    def allLabels : N[Label]                                                  = p(Get(Uri(api / "labels")))
+    def createLabel(label: Label) : N[Label]                                  = p(Post(Uri(api / "labels", label)))
+
+    def addCommitComment(sha: String, comment: IssueComment): A[IssueComment] = p(Post(Uri(api / "commits" / sha / "comments", comment)))
+    def commitComments(sha: String): N[IssueComment]                          = p(Get(Uri(api / "commits" / sha / "comments")))
+
+    def deleteCommitComment(id: String): Unit                                 = p(Delete(Uri(api / "comments" / id)))
+
+    def repoMilestones(state: String = "open"): N[Milestone]                  = p(Get(Uri(api / "milestones") withQuery Map("state" -> state)))
+
+  }
+
+  // def editPRComment(user: String, repo: String, id: String, comment: IssueComment)    = patch[IssueComment](pulls + "/comments/$id")
   // // Normalize sha if it's not 40 chars
   // // GET /repos/:owner/:repo/commits/:sha
   // def normalizeSha(user: String, repo: String, sha: String): String =
@@ -190,36 +162,7 @@ trait GithubApiActions {
   //       println(s"Error: couldn't normalize $sha (for $user/$repo): "+ e)
   //       sha
   //   }
-  //
-  // // DELETE /repos/:owner/:repo/comments/:id
-  // def deleteCommitComment(user: String, repo: String, id: String): Unit = {
-  //   val url = makeAPIurl("/repos/%s/%s/comments/%s" format (user, repo, id))
-  //   val action = (url.copy(method="DELETE") >|)
-  //   Http(action)
-  // }
-  //
-  //
-  // //  GET /repos/:owner/:repo/milestones
-  // def repoMilestones(user: String, repo: String, state: String = "open"): List[Milestone] = {
-  //   val url = makeAPIurl("/repos/%s/%s/milestones?state=%s" format (user, repo, state))
-  //   val action = (url >- parseJsonTo[List[Milestone]])
-  //   Http(action)
-  // }
-  //
-  // // PATCH /repos/:owner/:repo/issues/:number
-  // def setMilestone(user: String, repo: String, number: String, milestone: Int) = {
-  //   val url = makeAPIurl("/repos/%s/%s/issues/%s" format (user, repo, number))
-  //   import net.liftweb.json._
-  //
-  //   val action = (url.copy(method="PATCH") << makeJson(JObject(List(JField("milestone", JInt(milestone))))) >| )
-  //   Http(action)
-  // }
-  //
-  // def issue(user: String, repo: String, number: String): Issue = {
-  //   val url = makeAPIurl("/repos/%s/%s/issues/%s" format (user,repo,number))
-  //   val action = url >- parseJsonTo[Issue]
-  //   Http(action)
-  // }
+
 
 }
 
@@ -246,7 +189,7 @@ trait GithubApiActions {
 //    */
 //  def authenticate(user: String, pw: String): Authorization = {
 //    val previousAuth: Option[Authorization] =
-//      (getAuthentications(user,pw) filter (_.note == Some("rest.github.Authenticate API Access"))).headOption
+//      (getAuthentications(user,pw) filter (_.note == Some("scabot API Access"))).headOption
 //    previousAuth getOrElse makeAuthentication(user, pw)
 //  }
 //

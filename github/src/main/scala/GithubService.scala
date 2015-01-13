@@ -5,6 +5,8 @@ import akka.actor.{ActorSystem, Props}
 import akka.http.marshalling._
 import akka.http.model.{HttpRequest, ContentTypes, ContentType, HttpEntity}
 
+import akka.event.Logging
+
 import akka.http.server.Directives._
 import akka.http.unmarshalling._
 import akka.stream.FlowMaterializer
@@ -23,8 +25,6 @@ trait Service extends core.Service {
 
   import GithubJsonProtocol._
   import akka.http.marshallers.sprayjson.SprayJsonSupport._
-
-
 
   // X-Github-Event:
   //  commit_comment	Any time a Commit is commented on.
@@ -52,38 +52,53 @@ trait Service extends core.Service {
 
   // handle marshalling & routing between http clients and ServiceActor
   override def serviceRoute = super.serviceRoute ~ path("github") {
-    post {
-      headerValueByName("X-Github-Event") {
-        // case "commit_comment"              =>
-        // case "create"                      =>
-        // case "delete"                      =>
-        // case "deployment"                  =>
-        // case "deployment_status"           =>
-        // case "fork"                        =>
-        // case "gollum"                      =>
-        // case "issue_comment"               =>
-        // case "issues"                      =>
-        // case "member"                      =>
-        // case "membership"                  =>
-        // case "page_build"                  =>
-        // case "public"                      =>
-        // case "pull_request_review_comment" =>
-        case "pull_request"                   => handleWith(pullRequestEvent) //(fromRequestUnmarshaller[PullRequestEvent](sprayJsonUnmarshaller[PullRequestEvent]), implicitly[ToResponseMarshaller[String]])
-        // case "push"                        =>
-        // case "repository"                  =>
-        // case "release"                     =>
-        // case "status"                      =>
-        // case "team_add"                    =>
-        // case "watch"                       =>
-        case _                                => reject
+    post { logRequestResult(("get-user", Logging.InfoLevel)) {
+      headerValueByName("X-GitHub-Event") {
+        // case "commit_comment"           =>
+        // case "create"                   =>
+        // case "delete"                   =>
+        // case "deployment"               =>
+        // case "deployment_status"        =>
+        // case "fork"                     =>
+        // case "gollum"                   =>
+        case "issue_comment"               => handleWith(issueCommentEvent)
+        // case "issues"                   =>
+        // case "member"                   =>
+        // case "membership"               =>
+        // case "page_build"               =>
+        // case "public"                   =>
+        case "pull_request_review_comment" => handleWith(pullRequestReviewCommentEvent)
+        case "pull_request"                => handleWith(pullRequestEvent) //(fromRequestUnmarshaller[PullRequestEvent](sprayJsonUnmarshaller[PullRequestEvent]), implicitly[ToResponseMarshaller[String]])
+        case "push"                        => handleWith(pushEvent)
+        // case "repository"               =>
+        // case "release"                  =>
+        // case "status"                   =>
+        // case "team_add"                 =>
+        // case "watch"                    =>
+        case _                             => reject
       }
-
+    }
     }
   }
 
-  def pullRequestEvent(ev: PullRequestEvent): String = ev match { case PullRequestEvent(action, nb, pr) =>
+  def issueCommentEvent(ev: IssueCommentEvent): String = {
     println(ev)
-    ""
+    ev.toString
+  }
+
+  def pullRequestReviewCommentEvent(ev: PullRequestReviewCommentEvent): String = {
+    println(ev)
+    ev.toString
+  }
+
+  def pullRequestEvent(ev: PullRequestEvent): String = {
+    println(ev)
+    ev.toString
+  }
+
+  def pushEvent(ev: PushEvent): String = {
+    println(ev)
+    ev.toString
   }
 
 //  // actual processing of requests

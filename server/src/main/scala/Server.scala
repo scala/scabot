@@ -16,7 +16,7 @@ trait Server { self: core.Service =>
     implicit val routingSettings = RoutingSettings(system)
     implicit val routingSetup    = RoutingSetup.apply
 
-    val serverBinding = Http(system).bind(interface = "localhost", port = 8080)
+    val serverBinding = Http(system).bind(interface = "0.0.0.0", port = 8888)
 
     serverBinding.connections foreach { connection =>
       println("Accepted new connection from " + connection.remoteAddress)

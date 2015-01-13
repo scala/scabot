@@ -1,19 +1,21 @@
 import com.typesafe.sbt.SbtNativePackager._
 
 name := "scabot"
+
 organization in ThisBuild := "com.typesafe"
-version in ThisBuild := "0.0.0"
+version      in ThisBuild := "0.0.0"
 scalaVersion in ThisBuild := "2.11.5"
 
 // common dependencies
 libraryDependencies in ThisBuild ++= Seq(
-    "com.typesafe.akka" %% "akka-actor" % "2.3.8",
-    "com.typesafe.akka" %% "akka-kernel" % "2.3.8",
-    "com.typesafe.akka" %% "akka-http-spray-json-experimental" % "1.0-M2",
-    "io.spray" %%  "spray-json" % "1.3.1",
-    "com.typesafe.akka" %% "akka-http-experimental" % "1.0-M2"
+  "com.typesafe.akka" %% "akka-actor"                        % "2.3.8",
+  "com.typesafe.akka" %% "akka-kernel"                       % "2.3.8",
+  "com.typesafe.akka" %% "akka-http-spray-json-experimental" % "1.0-M2",
+  "com.typesafe.akka" %% "akka-http-experimental"            % "1.0-M2",
+  "io.spray"          %%  "spray-json"                       % "1.3.1"
 )
 
+// TODO: why do we need to define this explicitly
 // this is the root project, aggregating all sub projects
 lazy val root = Project(
     id = "root",
