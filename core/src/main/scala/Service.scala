@@ -2,9 +2,8 @@ package scabot
 package core
 
 import akka.actor.{ActorSystem}
-import akka.http.server.Route
-import akka.http.server.Directives._
-import akka.stream.FlowMaterializer
+import spray.routing.Route
+import spray.routing.Directives.reject
 
 import scala.concurrent.ExecutionContext
 
@@ -13,7 +12,6 @@ trait Service {
 
   // needed for marshalling implicits in github!!
   implicit def ec: ExecutionContext = system.dispatcher
-  implicit def materializer         = FlowMaterializer()
 
   def serviceRoute: Route = reject
 }

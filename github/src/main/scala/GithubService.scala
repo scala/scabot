@@ -1,30 +1,24 @@
 package scabot
 package github
 
-import akka.actor.{ActorSystem, Props}
-import akka.http.marshalling._
-import akka.http.model.{HttpRequest, ContentTypes, ContentType, HttpEntity}
-
 import akka.event.Logging
-
-import akka.http.server.Directives._
-import akka.http.unmarshalling._
-import akka.stream.FlowMaterializer
+import spray.routing.Directives
+import akka.actor.{ActorRef, Actor}
 import akka.util.Timeout
-import spray.json.{PrettyPrinter, JsonPrinter, RootJsonWriter, DefaultJsonProtocol}
 
-import scala.concurrent.ExecutionContext
+//// actual processing of requests
+//class HookTor extends Actor {
+//  def receive = {
+//    case PullRequestEvent(action, nb, pr) =>
+//  }
+//}
 
-/**
- * Created by adriaan on 1/11/15.
- */
-trait Service extends core.Service {
-  import akka.pattern.ask
-  import scala.concurrent.duration._
-  implicit val timeout = Timeout(2.seconds)
+trait GithubService extends core.Service with GithubApi with Directives {
 
-  import GithubJsonProtocol._
-  import akka.http.marshallers.sprayjson.SprayJsonSupport._
+//  import scala.concurrent.duration._
+//  implicit val timeout = Timeout(2.seconds)
+
+  import spray.httpx.SprayJsonSupport._
 
   // X-Github-Event:
   //  commit_comment	Any time a Commit is commented on.
@@ -49,10 +43,9 @@ trait Service extends core.Service {
   //  team_add	Any time a team is added or modified on a Repository.
   //  watch	Any time a User watches a Repository.
 
-
   // handle marshalling & routing between http clients and ServiceActor
   override def serviceRoute = super.serviceRoute ~ path("github") {
-    post { logRequestResult(("get-user", Logging.InfoLevel)) {
+    post { logRequestResponse(("get-user", Logging.InfoLevel)) {
       headerValueByName("X-GitHub-Event") {
         // case "commit_comment"           =>
         // case "create"                   =>
@@ -100,13 +93,5 @@ trait Service extends core.Service {
     println(ev)
     ev.toString
   }
-
-//  // actual processing of requests
-//  class ServiceActor extends akka.actor.Actor {
-//    def receive = {
-//      case PullRequestEvent(action, nb, pr) =>
-//    }
-//  }
-
 }
 

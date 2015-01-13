@@ -3,11 +3,15 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/core/core.iml" filepath="$PROJECT_DIR$/core/core.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/core-build.iml" filepath="$PROJECT_DIR$/.idea/modules/core-build.iml" />
       <module fileurl="file://$PROJECT_DIR$/github/github.iml" filepath="$PROJECT_DIR$/github/github.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/github-build.iml" filepath="$PROJECT_DIR$/.idea/modules/github-build.iml" />
       <module fileurl="file://$PROJECT_DIR$/jenkins/jenkins.iml" filepath="$PROJECT_DIR$/jenkins/jenkins.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/scabot.iml" filepath="$PROJECT_DIR$/.idea/modules/scabot.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/scabot-build.iml" filepath="$PROJECT_DIR$/.idea/modules/scabot-build.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/jenkins-build.iml" filepath="$PROJECT_DIR$/.idea/modules/jenkins-build.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/root.iml" filepath="$PROJECT_DIR$/.idea/modules/root.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/root-build.iml" filepath="$PROJECT_DIR$/.idea/modules/root-build.iml" />
       <module fileurl="file://$PROJECT_DIR$/server/server.iml" filepath="$PROJECT_DIR$/server/server.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/server-build.iml" filepath="$PROJECT_DIR$/.idea/modules/server-build.iml" />
     </modules>
   </component>
 </project>

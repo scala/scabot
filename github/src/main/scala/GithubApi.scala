@@ -1,21 +1,16 @@
 package scabot
 package github
 
-import spray.json.{RootJsonFormat, DefaultJsonProtocol}
+import spray.http.HttpResponse
+import spray.httpx.unmarshalling.FromResponseUnmarshaller
+
+import scala.concurrent.{Future, ExecutionContext}
+
+import akka.io.IO
+import spray.can.Http
 
 
-trait GithubAuth {
-  val USER_AGENT = "github.com/typesafehub/scabot"
-
-  val token: String
-//
-//   private def makeAPIurl(uri: String) = url("https://api.github.com" + uri) <:< Map(
-//     "Authorization" -> s"token $token",
-//     "User-Agent" -> USER_AGENT)
-// 
-}
-
-trait GithubApi extends GithubApiTypes with GithubApiActions {}
+trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions { self: core.Service => }
 
 // definitions in topo-order, no cycles in dependencies
 trait GithubApiTypes {
@@ -51,6 +46,8 @@ trait GithubApiTypes {
   case class Authorization(token: String, app: AuthApp, note: Option[String])
 }
 
+import spray.json.{RootJsonFormat, DefaultJsonProtocol}
+
 // TODO: can we make this more debuggable?
 // TODO: test against https://github.com/github/developer.github.com/tree/master/lib/webhooks
 trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { type RJF[x] = RootJsonFormat[x]
@@ -83,68 +80,74 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { type 
 }
 
 
-trait HTTPClient {
-  import akka.http.client.pipelining._
 
-  implicit def ec: ExecutionContext
+trait GithubApiActions extends GithubJsonProtocol { self : core.Service =>
+  def githubAuthToken: String
 
-  lazy val hostConnector = 
-    HostConnectorSetup(host = "api.github.com", sslEncryption = true, defaultHeaders = List(Authorization())) // "Accept" -> "application/vnd.github.v3+json"
+  import spray.can.Http.HostConnectorSetup
+  import spray.http.{GenericHttpCredentials, Uri, HttpRequest}
+  import spray.client.pipelining._
 
-  def credentials: HttpCredentials
+  import spray.httpx.SprayJsonSupport._
 
-  def pipeline[T]: HttpRequest => Future[T] = (
-    //    addHeader("X-My-Special-Header", "fancy-value")
-       addCredentials(credentials)
-    ~> sendReceive
-    ~> unmarshal[T]
-  )
+  import akka.pattern.ask
+  import akka.util.Timeout
+  import scala.concurrent.duration._
+  implicit val timeout = Timeout(5 seconds)
+
+  // addHeader("X-My-Special-Header", "fancy-value")
+  // "Accept" -> "application/vnd.github.v3+json"
+  def setup = for (
+    Http.HostConnectorInfo(connector, _) <- IO(Http) ? HostConnectorSetup(host = "api.github.com", port = 443, sslEncryption = true)
+  ) yield sendReceive(connector)
 
 
-  type N[x] = Future[List[x]]
-  type A[x] = List[x]
-  def p[T, Res[x]](req: HttpRequest): Res[T] = pipelineThatShit
+  def credentials = new GenericHttpCredentials("token", githubAuthToken)
 
-}
-
-trait GithubApiActions extends HTTPClient with GithubJsonProtocol {
-  case class GithubToken(token: String) extends HttpCredentials {
-    def render[R <: Rendering](r: R): r.type = r ~~ "token " ~~ token
+  def p[T: FromResponseUnmarshaller](req: HttpRequest): Future[T] = setup flatMap { sr => (
+         addCredentials(credentials)
+      ~> sr
+      ~> unmarshal[T]).apply(req)
   }
 
-  def credentials = new GithubToken(token)
-  
-  class For(user: String, repo: String) {
-    implicit class SlashyString(_str: String) = { def /(o: Any) = _str +"/"+ o.toString }
-    def api = s"/repos/$user/$repo"
-    
-    def pullRequests: N[PullRequest]                  = p(Get(Uri(api / "pulls")))
-    def closedPullRequests: N[PullRequest]            = p(Get(Uri(api / "pulls") withQuery Map("state" -> "closed")))
-    def pullRequest(number: String): A[PullRequest]   = p(Get(Uri(api / "pulls" / number)))
-    def pullRequestCommits(number: String): N[Commit] = p(Get(Uri(api / "pulls" / number / "commits")))
-    def deletePRComment(id: String)                   = p(Delete(Uri(api / "pulls" / "comments" / id)))
+  def px(req: HttpRequest): Future[HttpResponse] = (
+    addCredentials(credentials)
+      ~> sendReceive).apply(req)
 
-    def pullRequestComments(number: String): N[PullRequestComment]            = p(Get(Uri(api / "issues" / number / "comments")))
-    def addPRComment(number: String, comment: IssueComment): A[IssueComment]  = p(Post(Uri(api / "issues" / number / "comments", comment)))
-    def issue(number: String): A[Issue]                                       = p(Get(Uri(api / "issues" / number)))
-    def setMilestone(number: String, milestone: Int)                          = p(Patch(Uri(api / "issues" / number, JObject(List(JField("milestone", JInt(milestone)))))))
-    def addLabel(number: String, labels: List[Label]): A[Label]               = p(Post(Uri(api / "issues" / number / "labels", labels)))
-    def deleteLabel(number: String, label: String)                            = p(Delete(Uri(api / "issues" / number / "labels" / label)))
-    def labels(number: String): N[Label]                                      = p(Get(Uri(api / "issues" / number / "labels")))
+  class For(user: String, repo: String) {
+    implicit class SlashyString(_str: String) { def /(o: Any) = _str +"/"+ o.toString }
+    type N[x] = Future[List[x]]
+    type A[x] = Future[x]
+
+    def api = s"/repos/$user/$repo"
+
+    def pullRequests                                         = p[List[PullRequest]](Get(Uri(api / "pulls")))
+    def closedPullRequests                                   = p[List[PullRequest]](Get(Uri(api / "pulls") withQuery Map("state" -> "closed")))
+    def pullRequest(number: String)                          = p[PullRequest]      (Get(Uri(api / "pulls" / number)))
+    def pullRequestCommits(number: String)                   = p[List[Commit]]     (Get(Uri(api / "pulls" / number / "commits")))
+    def deletePRComment(id: String)                          = px               (Delete(Uri(api / "pulls" / "comments" / id)))
+
+    def pullRequestComments(number: String)                  = p[List[PullRequestComment]](Get(Uri(api / "issues" / number / "comments")))
+    def addPRComment(number: String, comment: IssueComment)  = p[IssueComment]           (Post(Uri(api / "issues" / number / "comments"), comment))
+    def issue(number: String)                                = p[Issue]                   (Get(Uri(api / "issues" / number)))
+//    def setMilestone(number: String, milestone: Int)       = px                       (Patch(Uri(api / "issues" / number, JObject(List(JField("milestone", JInt(milestone)))))))
+    def addLabel(number: String, labels: List[Label])        = p[Label]                  (Post(Uri(api / "issues" / number / "labels"), labels))
+    def deleteLabel(number: String, label: String)           = px                      (Delete(Uri(api / "issues" / number / "labels" / label)))
+    def labels(number: String)                               = p[List[Label]]             (Get(Uri(api / "issues" / number / "labels")))
 
     // most recent status comes first in the resulting list!
-    def commitStatus(sha: String): N[CommitStatus]                            = p(Get(Uri(api / "statuses" / sha)))
-    def setCommitStatus(sha: String, status: CommitStatus):  A[CommitStatus]  = p(Post(Uri(api / "statuses" / sha)))
+    def commitStatus(sha: String)                            = p[List[CommitStatus]]      (Get(Uri(api / "statuses" / sha)))
+    def setCommitStatus(sha: String, status: CommitStatus)   = p[CommitStatus]           (Post(Uri(api / "statuses" / sha), status))
 
-    def allLabels : N[Label]                                                  = p(Get(Uri(api / "labels")))
-    def createLabel(label: Label) : N[Label]                                  = p(Post(Uri(api / "labels", label)))
+    def allLabels                                            = p[List[Label]]             (Get(Uri(api / "labels")))
+    def createLabel(label: Label)                            = p[List[Label]]            (Post(Uri(api / "labels"), label))
 
-    def addCommitComment(sha: String, comment: IssueComment): A[IssueComment] = p(Post(Uri(api / "commits" / sha / "comments", comment)))
-    def commitComments(sha: String): N[IssueComment]                          = p(Get(Uri(api / "commits" / sha / "comments")))
+    def addCommitComment(sha: String, comment: IssueComment) = p[IssueComment]           (Post(Uri(api / "commits" / sha / "comments"), comment))
+    def commitComments(sha: String)                          = p[List[IssueComment]]      (Get(Uri(api / "commits" / sha / "comments")))
 
-    def deleteCommitComment(id: String): Unit                                 = p(Delete(Uri(api / "comments" / id)))
+    def deleteCommitComment(id: String): Unit                = px                      (Delete(Uri(api / "comments" / id)))
 
-    def repoMilestones(state: String = "open"): N[Milestone]                  = p(Get(Uri(api / "milestones") withQuery Map("state" -> state)))
+    def repoMilestones(state: String = "open")               = p[List[Milestone]]         (Get(Uri(api / "milestones") withQuery Map("state" -> state)))
 
   }
 
