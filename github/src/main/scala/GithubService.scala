@@ -3,8 +3,6 @@ package github
 
 import akka.event.Logging
 import spray.routing.Directives
-import akka.actor.{ActorRef, Actor}
-import akka.util.Timeout
 
 //// actual processing of requests
 //class HookTor extends Actor {
@@ -14,9 +12,6 @@ import akka.util.Timeout
 //}
 
 trait GithubService extends core.Service with GithubApi with Directives {
-
-//  import scala.concurrent.duration._
-//  implicit val timeout = Timeout(2.seconds)
 
   import spray.httpx.SprayJsonSupport._
 
@@ -45,53 +40,59 @@ trait GithubService extends core.Service with GithubApi with Directives {
 
   // handle marshalling & routing between http clients and ServiceActor
   override def serviceRoute = super.serviceRoute ~ path("github") {
-    post { logRequestResponse(("get-user", Logging.InfoLevel)) {
-      headerValueByName("X-GitHub-Event") {
-        // case "commit_comment"           =>
-        // case "create"                   =>
-        // case "delete"                   =>
-        // case "deployment"               =>
-        // case "deployment_status"        =>
-        // case "fork"                     =>
-        // case "gollum"                   =>
-        case "issue_comment"               => handleWith(issueCommentEvent)
-        // case "issues"                   =>
-        // case "member"                   =>
-        // case "membership"               =>
-        // case "page_build"               =>
-        // case "public"                   =>
-        case "pull_request_review_comment" => handleWith(pullRequestReviewCommentEvent)
-        case "pull_request"                => handleWith(pullRequestEvent) //(fromRequestUnmarshaller[PullRequestEvent](sprayJsonUnmarshaller[PullRequestEvent]), implicitly[ToResponseMarshaller[String]])
-        case "push"                        => handleWith(pushEvent)
-        // case "repository"               =>
-        // case "release"                  =>
-        // case "status"                   =>
-        // case "team_add"                 =>
-        // case "watch"                    =>
-        case _                             => reject
+    post {
+      logRequestResponse(("github-event", Logging.InfoLevel)) {
+        headerValueByName("X-GitHub-Event") {
+          // case "commit_comment"           =>
+          // case "create"                   =>
+          // case "delete"                   =>
+          // case "deployment"               =>
+          // case "deployment_status"        =>
+          // case "fork"                     =>
+          // case "gollum"                   =>
+          // case "issues"                   =>
+          // case "member"                   =>
+          // case "membership"               =>
+          // case "page_build"               =>
+          // case "public"                   =>
+          // case "repository"               =>
+          // case "release"                  =>
+          // case "status"                   =>
+          // case "team_add"                 =>
+          // case "watch"                    =>
+          case "issue_comment"               => handleWith(issueCommentEvent)
+          case "pull_request_review_comment" => handleWith(pullRequestReviewCommentEvent)
+          case "pull_request"                => handleWith(pullRequestEvent) //(fromRequestUnmarshaller[PullRequestEvent](sprayJsonUnmarshaller[PullRequestEvent]), implicitly[ToResponseMarshaller[String]])
+          case "push"                        => handleWith(pushEvent)
+          case _                             => reject
+        }
       }
     }
-    }
   }
 
-  def issueCommentEvent(ev: IssueCommentEvent): String = {
-    println(ev)
-    ev.toString
+  def pullRequestEvent(ev: PullRequestEvent): String = ev match {
+    case PullRequestEvent(action, number, pull_request) =>
+      println(ev)
+      ev.toString
   }
 
-  def pullRequestReviewCommentEvent(ev: PullRequestReviewCommentEvent): String = {
-    println(ev)
-    ev.toString
+  def pushEvent(ev: PushEvent): String = ev match {
+    case PushEvent(ref, before, after, created, deleted, forced, base_ref, commits, head_commit, repository, pusher) =>
+      println(ev)
+      ev.toString
   }
 
-  def pullRequestEvent(ev: PullRequestEvent): String = {
-    println(ev)
-    ev.toString
+  def issueCommentEvent(ev: IssueCommentEvent): String = ev match {
+    case IssueCommentEvent(action, issue, comment, repository) =>
+      println(ev)
+      ev.toString
   }
 
-  def pushEvent(ev: PushEvent): String = {
-    println(ev)
-    ev.toString
+  def pullRequestReviewCommentEvent(ev: PullRequestReviewCommentEvent): String = ev match {
+    case PullRequestReviewCommentEvent(action, pull_request, comment, repository) =>
+      println(ev)
+      ev.toString
   }
+
 }
 

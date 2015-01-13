@@ -43,4 +43,3 @@ lazy val core    = project
 lazy val github  = project dependsOn (core)
 lazy val jenkins = project dependsOn (core)
 lazy val server  = project dependsOn (github, jenkins)
-
