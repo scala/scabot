@@ -95,15 +95,10 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { type 
 }
 
 trait GithubApiActions extends GithubJsonProtocol with core.HttpClient { self : core.Service =>
-  class Connection(val user: String, val repo: String, authToken: String) {
+  class GithubConnection(val user: String, val repo: String, authToken: String) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._
     import spray.client.pipelining._
-    import scala.concurrent.Future
-
-    implicit class SlashyString(_str: String) { def /(o: Any) = _str +"/"+ o.toString }
-    type N[x] = Future[List[x]]
-    type A[x] = Future[x]
 
     def host = "api.github.com"
     def credentials = new GenericHttpCredentials("token", authToken)

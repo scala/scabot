@@ -26,6 +26,8 @@ trait HttpClient { self : Service =>
   import spray.client.pipelining._
   import spray.http.{HttpCredentials, HttpRequest}
 
+  implicit class SlashyString(_str: String) { def /(o: Any) = _str +"/"+ o.toString }
+
   // use this to initialize an implicit of type Future[SendReceive], for use with p (for "pipeline") and px below
   def setupConnection(host: String, credentials: HttpCredentials): Future[SendReceive] = {
     import akka.pattern.ask
