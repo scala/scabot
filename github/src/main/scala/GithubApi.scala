@@ -65,7 +65,7 @@ import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
 // TODO: test against https://github.com/github/developer.github.com/tree/master/lib/webhooks
-trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { type RJF[x] = RootJsonFormat[x]
+trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtUser             : RJF[User]                          = jsonFormat1(User)
   implicit lazy val _fmtAuthor           : RJF[Author]                        = jsonFormat2(Author)
   implicit lazy val _fmtRepository       : RJF[Repository]                    = jsonFormat6(Repository)
@@ -95,15 +95,12 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { type 
 }
 
 trait GithubApiActions extends GithubJsonProtocol with core.HttpClient { self : core.Service =>
-  class GithubConnection(val user: String, val repo: String, authToken: String) {
+  class GithubConnection(val host: String, val user: String, val repo: String, token: String) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._
     import spray.client.pipelining._
 
-    def host = "api.github.com"
-    def credentials = new GenericHttpCredentials("token", authToken)
-
-    implicit lazy val githubConnection = setupConnection(host, credentials)
+    private implicit def connection = setupConnection(host, new GenericHttpCredentials("token", token))
     // addHeader("X-My-Special-Header", "fancy-value")
     // "Accept" -> "application/vnd.github.v3+json"
 

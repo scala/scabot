@@ -12,7 +12,6 @@ import spray.routing.Directives
 //}
 
 trait GithubService extends core.Service with GithubApi with Directives {
-
   import spray.httpx.SprayJsonSupport._
 
   // X-Github-Event:
