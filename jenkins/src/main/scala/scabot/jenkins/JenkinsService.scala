@@ -46,8 +46,8 @@ trait JenkinsService extends core.Service with JenkinsApi with Directives {
     }
   }
 
-  def jenkinsEvent(jobState: JobState): String = jobState match { case JobState(_, _, BuildState(_, number, phase, result, buildUrl, displayName, ScmState(scmUrl, scmRef, scmSha), parameters, log)) =>
-    println(s"Job $displayName [$number]: $phase ($result) at $buildUrl.\n  Checkout: $scmUrl#$scmRef ($scmSha)\n  Params: $parameters")
+  def jenkinsEvent(jobState: JobState): String = jobState match { case JobState(name, _, BuildState(number, phase, parameters, ScmParams(remote, ref, sha), result, full_url, log)) =>
+    println(s"Job $name [$number]: $phase ($result) at $full_url.\n  Checkout: $remote/$ref($sha)\n  Params: $parameters\n $log")
     "Thanks jenkins"
   }
 }

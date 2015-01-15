@@ -71,10 +71,9 @@ trait JenkinsApiTypes {
 
   // for https://wiki.jenkins-ci.org/display/JENKINS/Notification+Plugin
   case class JobState(name: String, url: String, build: BuildState)
-  //  STARTED, COMPLETED, FINALIZED;
-  case class BuildState(full_url: String, number: Int, phase: String, result: String, url: String, displayName: String,
-                        scm: ScmState, parameters: Map[String, String], log: String)
-  case class ScmState(url: String, branch: String, commit: String)
+  // phase = STARTED | COMPLETED | FINALIZED
+  case class BuildState(number: Int, phase: String, parameters: Map[String, String], scm: ScmParams, result: Option[String], full_url: String, log: Option[String])
+  case class ScmParams(url: String, branch: String, commit: String)
 }
 
 
@@ -91,8 +90,8 @@ trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { pri
   implicit lazy val _fmtQueueItem   : RJF[QueueItem  ] = jsonFormat3(QueueItem)
   implicit lazy val _fmtTask        : RJF[Task       ] = jsonFormat2(Task)
   implicit lazy val _fmtJobState    : RJF[JobState   ] = jsonFormat3(JobState)
-  implicit lazy val _fmtBuildState  : RJF[BuildState ] = jsonFormat9(BuildState)
-  implicit lazy val _fmtScmState    : RJF[ScmState   ] = jsonFormat3(ScmState)
+  implicit lazy val _fmtBuildState  : RJF[BuildState ] = jsonFormat7(BuildState)
+  implicit lazy val _fmtScmState    : RJF[ScmParams  ] = jsonFormat3(ScmParams)
 }
 
 trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self: core.Service =>
@@ -108,8 +107,10 @@ trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self:
     def api(rest: String) = Uri("/" + rest)
 
     def buildJob(name: String, params: Map[String, String] = Map.empty) =
-      p[String](Post(if (params.isEmpty) api(name / "build")
-      else api("job" / name / "buildWithParameters") withQuery (params)))
+      p[String](Post(
+        if (params.isEmpty) api(name / "build")
+        else api("job" / name / "buildWithParameters") withQuery (params)
+      ))
 
     def buildStatus(name: String, buildNumber: Int) =
       p[BuildStatus](Get(api("job" / name / buildNumber / "api/json")))
@@ -126,7 +127,7 @@ trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self:
       // queued items must come first, they have been added more recently or they wouldn't have been queued
       val all = for {
         queued   <- p[Queue](Get(api("queue/api/json"))).map(queuedStati)
-        reported <-   p[Job](Get("job" / job / "api/json")).flatMap(reportedStati)
+        reported <-   p[Job](Get(api("job" / job / "api/json"))).flatMap(reportedStati)
       } yield queued ++ reported
 
       all.map(_.filter { status =>
