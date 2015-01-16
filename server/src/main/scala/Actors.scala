@@ -83,6 +83,7 @@ trait Actors {
 
     // TODO: distrust input, go back to source to verify
     // supports messages of type PRMessage
+    // PullRequestEvent.action: “assigned”, “unassigned”, “labeled”, “unlabeled”, “opened”, “closed”, or “reopened”, or “synchronize”
     override def receive: Actor.Receive = {
       // process all commits (need to launch builds?) & PR comments
       case PullRequestEvent(a@"synchronize", _, pull_request) if pull_request.updated_at != lastSynchronized =>
@@ -90,11 +91,11 @@ trait Actors {
         log.info(s"PR synch --> $pull_request")
         handlePR(a, pull_request)
 
-      case PullRequestEvent(a@"open", _, pull_request) =>
+      case PullRequestEvent(a@("opened" | "reopened"), _, pull_request) =>
         log.info(s"PR open --> $pull_request")
         handlePR(a, pull_request)
 
-      case PullRequestEvent("close", _, _) =>
+      case PullRequestEvent("closed", _, _) =>
         log.info(s"PR closed!")
         context.stop(self)
 
