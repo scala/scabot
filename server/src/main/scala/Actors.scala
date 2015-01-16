@@ -134,7 +134,10 @@ trait Actors {
         sha    <- Future { parameters(PARAM_REPO_REF) }
         status <- githubApi.postStatus(sha, CommitStatus(status, Some(context), Some(msg), Some(target_url)))
       } yield status
+    }  onFailure {
+      case e => log.info(s"handleJobState($context, $jobNumber, $phase, $result, $parameters) failed: $e");
     }
+
 
     private def handleComment(comment: IssueComment) = {
     }

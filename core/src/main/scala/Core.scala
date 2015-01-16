@@ -2,6 +2,7 @@ package scabot
 package core
 
 import akka.actor.{ActorRef, ActorSystem}
+import akka.event.Logging
 import akka.io.IO
 import spray.can.Http
 import spray.http.HttpResponse
@@ -53,7 +54,7 @@ trait HttpClient { self : Core =>
 
     for (
       Http.HostConnectorInfo(connector, _) <- IO(Http) ? HostConnectorSetup(host = host, port = 443, sslEncryption = true)
-    ) yield addCredentials(credentials) ~> sendReceive(connector)
+    ) yield addCredentials(credentials) ~> logRequest(system.log/*, akka.event.Logging.InfoLevel*/) ~> sendReceive(connector) ~> logResponse(system.log/*, akka.event.Logging.InfoLevel*/)
   }
 
   def p[T: FromResponseUnmarshaller](req: HttpRequest)(implicit connection: Future[SendReceive]): Future[T] =

@@ -45,7 +45,7 @@ trait GithubService extends core.Core with GithubApi with Directives {
   // handle marshalling & routing between http clients and ServiceActor
   override def serviceRoute = super.serviceRoute ~ path("github") {
     post {
-      logRequestResponse(("github-event", Logging.InfoLevel)) {
+      logRequestResponse(("github-event"/*, Logging.InfoLevel*/)) {
         headerValueByName("X-GitHub-Event") {
           // case "commit_comment"           =>
           // case "create"                   =>

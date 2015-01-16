@@ -11,7 +11,7 @@ trait JenkinsService extends core.Core with JenkinsApi with Directives {
   // handle marshalling & routing between http clients and ServiceActor
   override def serviceRoute = super.serviceRoute ~ path("jenkins") {
     post {
-      logRequestResponse(("jenkins-event", Logging.InfoLevel)) {
+      logRequestResponse(("jenkins-event"/*, Logging.InfoLevel*/)) {
         handleWith(jenkinsEvent)
       }
     }
