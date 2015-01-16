@@ -49,7 +49,7 @@ class RoutedHttpService(route: Route) extends Actor with HttpService with ActorL
 
 
 trait Server { self: core.Core =>
-  implicit def system: ActorSystem = ActorSystem("scabot")
+  implicit lazy val system: ActorSystem = ActorSystem("scabot")
 
   def startServer() = {
     IO(Http)(system) ! Http.Bind(system.actorOf(Props(new RoutedHttpService(serviceRoute))), "0.0.0.0", port = 8888)

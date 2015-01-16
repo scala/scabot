@@ -33,8 +33,6 @@ trait Actors {
         } foreach {
           _ ! Synch
         }
-      case ProjectEvent(user, repo, msg) =>
-        context.actorSelection(s"$user-$repo") ! msg
     }
   }
 

@@ -15,7 +15,7 @@ trait GithubService extends core.Core with GithubApi with Directives {
     val UserRepo(user, repo) = repository.full_name
     val log = s"Processing $ev for $user/$repo"
     system.log.info(log)
-    githubActor ! ProjectEvent(user, repo, ev)
+    system.actorSelection(githubActor.path / s"$user-$repo") ! ev
     log
   }
 

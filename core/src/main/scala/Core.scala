@@ -22,8 +22,6 @@ trait Core {
 
   def githubActor: ActorRef
 
-  case class ProjectEvent(user: String, repo: String, msg: ProjectMessage)
-
   // marker for messages understood by ProjectActor
   trait ProjectMessage
 
