@@ -69,6 +69,7 @@ trait GithubApiTypes { self: core.Core =>
 
 }
 
+import spray.http.BasicHttpCredentials
 import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
@@ -109,7 +110,10 @@ trait GithubApiActions extends GithubJsonProtocol with core.HttpClient { self : 
     import spray.httpx.SprayJsonSupport._
     import spray.client.pipelining._
 
-    private implicit def connection = setupConnection(host, new GenericHttpCredentials("token", token))
+    // NOTE: the token (https://github.com/settings/applications#personal-access-tokens)
+    // must belong to a collaborator of the repo (https://github.com/$user/$repo/settings/collaboration)
+    // or we can't set commit statuses
+    private implicit def connection = setupConnection(host, new BasicHttpCredentials(token, "x-oauth-basic")) // https://developer.github.com/v3/auth/#basic-authentication
     // addHeader("X-My-Special-Header", "fancy-value")
     // "Accept" -> "application/vnd.github.v3+json"
 
