@@ -1,10 +1,12 @@
-package scabot.server
+package scabot.core
 
-import akka.event.Logging
 import com.typesafe.config.{Config => TConfig, _}
-import scabot.core
 
-trait Configuration { self: core.Service =>
+trait Configuration { self: Core =>
+  // TODO make file location configurable
+  // TODO generate config using chef
+  lazy val configs: Map[String, Config] = parseConfig(new java.io.File("scabot.conf"))
+
   object Config {
     case class Github(user: String, repo: String, host: String, token: String)
     case class Jenkins(job: String, host: String, user: String, token: String)
@@ -14,7 +16,7 @@ trait Configuration { self: core.Service =>
 
   // TODO - useful error messages on failure.
   def parseConfig(file: java.io.File): Map[String, Config] = {
-    import collection.JavaConverters._
+    import scala.collection.JavaConverters._
     val config = ConfigFactory parseFile file
 
     def configString(c: ConfigValue): Option[String] =

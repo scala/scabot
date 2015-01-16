@@ -4,15 +4,20 @@ package github
 import akka.event.Logging
 import spray.routing.Directives
 
-//// actual processing of requests
-//class HookTor extends Actor {
-//  def receive = {
-//    case PullRequestEvent(action, nb, pr) =>
-//  }
-//}
+import scala.util.{Success, Failure}
 
-trait GithubService extends core.Service with GithubApi with Directives {
+
+trait GithubService extends core.Core with GithubApi with Directives {
   import spray.httpx.SprayJsonSupport._
+
+  private lazy val UserRepo = """([^/]+)/(.+)""".r
+  def notifyProject(ev: ProjectMessage, repository: Repository): String = {
+    val UserRepo(user, repo) = repository.full_name
+    val log = s"Processing $ev for $user/$repo"
+    system.log.info(log)
+    githubActor ! ProjectEvent(user, repo, ev)
+    log
+  }
 
   // X-Github-Event:
   //  commit_comment	Any time a Commit is commented on.
@@ -62,7 +67,7 @@ trait GithubService extends core.Service with GithubApi with Directives {
           case "issue_comment"               => handleWith(issueCommentEvent)
           case "pull_request_review_comment" => handleWith(pullRequestReviewCommentEvent)
           case "pull_request"                => handleWith(pullRequestEvent) //(fromRequestUnmarshaller[PullRequestEvent](sprayJsonUnmarshaller[PullRequestEvent]), implicitly[ToResponseMarshaller[String]])
-          case "push"                        => handleWith(pushEvent)
+//          case "push"                        => handleWith(pushEvent)
           case _                             => reject
         }
       }
@@ -71,26 +76,23 @@ trait GithubService extends core.Service with GithubApi with Directives {
 
   def pullRequestEvent(ev: PullRequestEvent): String = ev match {
     case PullRequestEvent(action, number, pull_request) =>
-      println(ev)
-      ev.toString
+      notifyProject(ev, ev.pull_request.base.repo)
   }
 
-  def pushEvent(ev: PushEvent): String = ev match {
-    case PushEvent(ref, before, after, created, deleted, forced, base_ref, commits, head_commit, repository, pusher) =>
-      println(ev)
-      ev.toString
-  }
+//  def pushEvent(ev: PushEvent): String = ev match {
+//    case PushEvent(ref, before, after, created, deleted, forced, base_ref, commits, head_commit, repository, pusher) =>
+//      println(ev)
+//      ev.toString
+//  }
 
   def issueCommentEvent(ev: IssueCommentEvent): String = ev match {
     case IssueCommentEvent(action, issue, comment, repository) =>
-      println(ev)
-      ev.toString
+      notifyProject(ev, repository)
   }
 
   def pullRequestReviewCommentEvent(ev: PullRequestReviewCommentEvent): String = ev match {
     case PullRequestReviewCommentEvent(action, pull_request, comment, repository) =>
-      println(ev)
-      ev.toString
+      notifyProject(ev, repository)
   }
 
 }

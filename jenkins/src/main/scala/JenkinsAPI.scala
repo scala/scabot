@@ -5,9 +5,9 @@ import spray.http.BasicHttpCredentials
 
 import scala.concurrent.Future
 
-trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions { self: core.Service => }
+trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions { self: core.Core => }
 
-trait JenkinsApiTypes {
+trait JenkinsApiTypes { self: core.Core =>
   case class Job(name: String,
                  description: String,
                  nextBuildNumber: Int,
@@ -70,17 +70,38 @@ trait JenkinsApiTypes {
   case class Task(name: String, url: String)
 
   // for https://wiki.jenkins-ci.org/display/JENKINS/Notification+Plugin
-  case class JobState(name: String, url: String, build: BuildState)
+  case class JobState(name: String, url: String, build: BuildState) extends ProjectMessage with PRMessage
   // phase = STARTED | COMPLETED | FINALIZED
   case class BuildState(number: Int, phase: String, parameters: Map[String, String], scm: ScmParams, result: Option[String], full_url: String, log: Option[String])
-  case class ScmParams(url: String, branch: String, commit: String)
+  case class ScmParams(url: Option[String], branch: Option[String], commit: Option[String]) // TODO can we lift the `Option`s to `BuildState`'s `scm` arg?
 }
 
+/*
+{
+    "build": {
+        "artifacts": {},
+        "full_url": "https://scala-ci.typesafe.com/job/scala-2.11.x-validate-main/28/",
+        "number": 28,
+        "parameters": {
+            "prDryRun": "",
+            "repo_name": "scala",
+            "repo_ref": "61a16f54b64d1bf020f36c2a6b4baff58c6ec70d",
+            "repo_user": "adriaanm"
+        },
+        "phase": "FINALIZED",
+        "scm": {},
+        "status": "FAILURE",
+        "url": "job/scala-2.11.x-validate-main/28/"
+    },
+    "name": "scala-2.11.x-validate-main",
+    "url": "job/scala-2.11.x-validate-main/"
+}
+ */
 
 import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
-trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { private type RJF[x] = RootJsonFormat[x]
+trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { self: core.Core => private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtJob         : RJF[Job        ] = jsonFormat7(Job)
   implicit lazy val _fmtBuild       : RJF[Build      ] = jsonFormat2(Build)
   implicit lazy val _fmtParam       : RJF[Param      ] = jsonFormat2(Param)
@@ -94,7 +115,7 @@ trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { pri
   implicit lazy val _fmtScmState    : RJF[ScmParams  ] = jsonFormat3(ScmParams)
 }
 
-trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self: core.Service =>
+trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self: core.Core =>
 
   class JenkinsConnection(val host: String, user: String, token: String) {
 
@@ -114,6 +135,9 @@ trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self:
 
     def buildStatus(name: String, buildNumber: Int) =
       p[BuildStatus](Get(api("job" / name / buildNumber / "api/json")))
+
+    def buildStatus(url: String) =
+      p[BuildStatus](Get(url / "api/json"))
 
     /** A traversable that lazily pulls build status information from jenkins.
       *

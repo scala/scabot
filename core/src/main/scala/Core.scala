@@ -1,7 +1,7 @@
 package scabot
 package core
 
-import akka.actor.{ActorSystem}
+import akka.actor.{ActorRef, ActorSystem}
 import akka.io.IO
 import spray.can.Http
 import spray.http.HttpResponse
@@ -11,17 +11,32 @@ import spray.routing.Directives.reject
 
 import scala.concurrent.{Future, ExecutionContext}
 
-trait Service {
+trait Core {
   implicit def system: ActorSystem
 
   // needed for marshalling implicits in github!!
   implicit def ec: ExecutionContext = system.dispatcher
 
   def serviceRoute: Route = reject
+
+  def githubActor: ActorRef
+
+  case class ProjectEvent(user: String, repo: String, msg: ProjectMessage)
+
+  // marker for messages understood by ProjectActor
+  trait ProjectMessage
+
+  // marker for messages understood by PullRequestActor
+  trait PRMessage
+
+  final val PARAM_REPO_USER = "repo_user"
+  final val PARAM_REPO_NAME = "repo_name"
+  final val PARAM_REPO_REF  = "repo_ref"
+  final val PARAM_PR        = "_scabot_pr"
 }
 
 
-trait HttpClient { self : Service =>
+trait HttpClient { self : Core =>
   import spray.can.Http.HostConnectorSetup
   import spray.client.pipelining._
   import spray.http.{HttpCredentials, HttpRequest}

@@ -48,26 +48,20 @@ class RoutedHttpService(route: Route) extends Actor with HttpService with ActorL
 }
 
 
-trait Server { self: core.Service =>
+trait Server { self: core.Core =>
   implicit def system: ActorSystem = ActorSystem("scabot")
 
-  def startServer = {
+  def startServer() = {
     IO(Http)(system) ! Http.Bind(system.actorOf(Props(new RoutedHttpService(serviceRoute))), "0.0.0.0", port = 8888)
   }
 }
 
 import akka.kernel.Bootable
 
-class Scabot extends Bootable with Server with GithubService with JenkinsService with Configuration {
-  // TODO make configurable
-  // TODO generate config using chef
-  lazy val config = parseConfig(new java.io.File("scabot.conf"))("scala")
-
-  lazy val githubApi = new GithubConnection(host = config.github.host, user = config.github.user, repo = config.github.repo, token = config.github.token)
-  lazy val jenkinsApi = new JenkinsConnection(host = config.jenkins.host, user = config.jenkins.user, token = config.jenkins.token)
-
+class Scabot extends Bootable with Server with GithubService with JenkinsService with core.Configuration with Actors {
   def startup = {
-    startServer
+    startServer()
+    startActors()
   }
 
   def shutdown = {

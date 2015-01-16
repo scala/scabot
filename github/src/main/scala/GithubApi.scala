@@ -1,10 +1,10 @@
 package scabot
 package github
 
-trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions { self: core.Service => }
+trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions { self: core.Core => }
 
 // definitions in topo-order, no cycles in dependencies
-trait GithubApiTypes {
+trait GithubApiTypes { self: core.Core =>
   type Date = Option[Either[String, Long]]
 
   case class User(login: String)
@@ -22,38 +22,46 @@ trait GithubApiTypes {
 
   case class PullRequest(number: Int, state: String, title: String, body: String,
                          created_at: Date, updated_at: Date, closed_at: Date, merged_at: Date,
-                         head: GitRef, base: GitRef, user: User, mergeable: Option[Boolean], merged_by: Option[User])
+                         head: GitRef, base: GitRef, user: User, merged: Option[Boolean], mergeable: Option[Boolean], merged_by: Option[User])
   //, comments: Int, commits: Int, additions: Int, deletions: Int, changed_files: Int)
 
-  case class Label(name: String, color: String, url: Option[String] = None)
+  case class Label(name: String, color: Option[String] = None, url: Option[String] = None)
 
+  object Milestone {
+    private val MergeBranch = """Merge to (\S+)\b""".r.unanchored
+    def mergeBranch(ms: Milestone) = ms.description match {
+      case MergeBranch(branch) => Some(branch)
+      case _ => None
+    }
+  }
   case class Milestone(number: Int, state: String, title: String, description: String, creator: User,
                        created_at: Date, updated_at: Date, closed_at: Date, due_on: Option[Date])
 
   case class Issue(number: Int, state: String, title: String, body: String, user: User, labels: List[Label],
                    assignee: Option[User], milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date)
 
-  case class CommitInfo(distinct: Boolean, message: String, timestamp: Date, author: Author, committer: Author,
-                        added: List[String], removed: List[String], modified: List[String])
+  case class CommitInfo(message: String, timestamp: Date, author: Author, committer: Author) // added: Option[List[String]], removed: Option[List[String]], modified: Option[List[String]]
 
   case class Commit(sha: String, commit: CommitInfo, url: Option[String] = None)
 
+  case class CombiCommitStatus(state: String, sha: String, statuses: List[CommitStatus], total_count: Int)
+
   case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None)
 
-  case class IssueComment(body: String, user: User, created_at: Date, updated_at: Date, id: Option[Long] = None)
+  case class IssueComment(body: String, user: User, created_at: Date, updated_at: Date, id: Option[Long] = None) extends PRMessage
 
   case class PullRequestComment(body: String, user: User, commit_id: String, path: String, position: Int,
-                                created_at: Date, updated_at: Date, id: Option[Long] = None)
+                                created_at: Date, updated_at: Date, id: Option[Long] = None) extends PRMessage
   // diff_hunk, original_position, original_commit_id
 
-  case class PullRequestEvent(action: String, number: Int, pull_request: PullRequest)
+  case class PullRequestEvent(action: String, number: Int, pull_request: PullRequest) extends ProjectMessage with PRMessage
 
   case class PushEvent(ref: String, before: String, after: String, created: Boolean, deleted: Boolean, forced: Boolean,
                        base_ref: Option[String], commits: List[CommitInfo], head_commit: CommitInfo, repository: Repository, pusher: Author)
 
-  case class PullRequestReviewCommentEvent(action: String, pull_request: PullRequest, comment: PullRequestComment, repository: Repository)
+  case class PullRequestReviewCommentEvent(action: String, pull_request: PullRequest, comment: PullRequestComment, repository: Repository)  extends ProjectMessage
 
-  case class IssueCommentEvent(action: String, issue: Issue, comment: IssueComment, repository: Repository)
+  case class IssueCommentEvent(action: String, issue: Issue, comment: IssueComment, repository: Repository) extends ProjectMessage
 
   case class AuthApp(name: String, url: String)
 
@@ -65,22 +73,23 @@ import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
 // TODO: test against https://github.com/github/developer.github.com/tree/master/lib/webhooks
-trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { private type RJF[x] = RootJsonFormat[x]
+trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self: core.Core => private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtUser             : RJF[User]                          = jsonFormat1(User)
   implicit lazy val _fmtAuthor           : RJF[Author]                        = jsonFormat2(Author)
   implicit lazy val _fmtRepository       : RJF[Repository]                    = jsonFormat6(Repository)
 
   implicit lazy val _fmtGitRef           : RJF[GitRef]                        = jsonFormat5(GitRef)
 
-  implicit lazy val _fmtPullRequest      : RJF[PullRequest]                   = jsonFormat13(PullRequest)
+  implicit lazy val _fmtPullRequest      : RJF[PullRequest]                   = jsonFormat14(PullRequest)
 
   implicit lazy val _fmtLabel            : RJF[Label]                         = jsonFormat3(Label)
-  implicit lazy val _fmtMilestone        : RJF[Milestone]                     = jsonFormat9(Milestone)
+  implicit lazy val _fmtMilestone        : RJF[Milestone]                     = jsonFormat9(Milestone.apply)
   implicit lazy val _fmtIssue            : RJF[Issue]                         = jsonFormat11(Issue)
 
-  implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat8(CommitInfo)
+  implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat4(CommitInfo)
   implicit lazy val _fmtCommit           : RJF[Commit]                        = jsonFormat3(Commit)
   implicit lazy val _fmtCommitStatus     : RJF[CommitStatus]                  = jsonFormat4(CommitStatus)
+  implicit lazy val _fmtCombiCommitStatus: RJF[CombiCommitStatus]             = jsonFormat4(CombiCommitStatus)
 
   implicit lazy val _fmtIssueComment     : RJF[IssueComment]                  = jsonFormat5(IssueComment)
   implicit lazy val _fmtPullRequestComment: RJF[PullRequestComment]           = jsonFormat8(PullRequestComment)
@@ -94,7 +103,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { priva
   implicit lazy val _fmtAuthApp          : RJF[AuthApp]                       = jsonFormat2(AuthApp)
 }
 
-trait GithubApiActions extends GithubJsonProtocol with core.HttpClient { self : core.Service =>
+trait GithubApiActions extends GithubJsonProtocol with core.HttpClient { self : core.Core =>
   class GithubConnection(val host: String, val user: String, val repo: String, token: String) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._
@@ -105,24 +114,25 @@ trait GithubApiActions extends GithubJsonProtocol with core.HttpClient { self : 
     // "Accept" -> "application/vnd.github.v3+json"
 
     def api(rest: String) = Uri(s"/repos/$user/$repo" / rest)
+    import spray.json._
 
-    def pullRequests                                         = p[List[PullRequest]](Get(api("pulls")))
-    def closedPullRequests                                   = p[List[PullRequest]](Get(api("pulls") withQuery Map("state" -> "closed")))
-    def pullRequest(number: String)                          = p[PullRequest]      (Get(api("pulls" / number)))
-    def pullRequestCommits(number: String)                   = p[List[Commit]]     (Get(api("pulls" / number / "commits")))
-    def deletePRComment(id: String)                          = px               (Delete(api("pulls" / "comments" / id)))
+    def pullRequests                                 = p[List[PullRequest]](Get(api("pulls")))
+    def closedPullRequests                           = p[List[PullRequest]](Get(api("pulls") withQuery Map("state" -> "closed")))
+    def pullRequest(nb: Int)                         = p[PullRequest]      (Get(api("pulls" / nb.toString)))
+    def pullRequestCommits(nb: Int)                  = p[List[Commit]]     (Get(api("pulls" / nb.toString / "commits")))
+    def deletePRComment(id: String)                  = px               (Delete(api("pulls" / "comments" / id)))
 
-    def pullRequestComments(number: String)                  = p[List[PullRequestComment]](Get(api("issues" / number / "comments")))
-    def addPRComment(number: String, comment: IssueComment)  = p[IssueComment]           (Post(api("issues" / number / "comments"), comment))
-    def issue(number: String)                                = p[Issue]                   (Get(api("issues" / number)))
-//    def setMilestone(number: String, milestone: Int)       = px                       (Patch(api("issues" / number, JObject(List(JField("milestone", JInt(milestone)))))))
-    def addLabel(number: String, labels: List[Label])        = p[Label]                  (Post(api("issues" / number / "labels"), labels))
-    def deleteLabel(number: String, label: String)           = px                      (Delete(api("issues" / number / "labels" / label)))
-    def labels(number: String)                               = p[List[Label]]             (Get(api("issues" / number / "labels")))
+    def pullRequestComments(nb: Int)                 = p[List[PullRequestComment]](Get(api("issues" / nb.toString / "comments")))
+    def addPRComment(nb: Int, comment: IssueComment) = p[IssueComment]           (Post(api("issues" / nb.toString / "comments"), comment))
+    def issue(nb: Int)                               = p[Issue]                   (Get(api("issues" / nb.toString)))
+    def setMilestone(nb: Int, milestone: Int)        = px                       (Patch(api("issues" / nb.toString), JsObject("milestone" -> JsNumber(milestone))))
+    def addLabel(nb: Int, labels: List[Label])       = p[Label]                  (Post(api("issues" / nb.toString / "labels"), labels))
+    def deleteLabel(nb: Int, label: String)          = px                      (Delete(api("issues" / nb.toString / "labels" / label)))
+    def labels(nb: Int)                              = p[List[Label]]             (Get(api("issues" / nb.toString / "labels")))
 
     // most recent status comes first in the resulting list!
-    def commitStatus(sha: String)                            = p[List[CommitStatus]]      (Get(api("statuses" / sha)))
-    def setCommitStatus(sha: String, status: CommitStatus)   = p[CommitStatus]           (Post(api("statuses" / sha), status))
+    def commitStatus(sha: String)                            = p[CombiCommitStatus]  (Get(api("commits" / sha / "status")))
+    def postStatus(sha: String, status: CommitStatus)        = p[CommitStatus]           (Post(api("statuses" / sha), status))
 
     def allLabels                                            = p[List[Label]]             (Get(api("labels")))
     def createLabel(label: Label)                            = p[List[Label]]            (Post(api("labels"), label))
