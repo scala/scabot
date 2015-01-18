@@ -4,10 +4,11 @@ package jenkins
 import spray.http.BasicHttpCredentials
 
 import scala.concurrent.Future
+import scala.util.Try
 
-trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions { self: core.Core => }
+trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions { self: core.Core with core.Configuration => }
 
-trait JenkinsApiTypes { self: core.Core =>
+trait JenkinsApiTypes { self: core.Core with core.Configuration =>
   case class Job(name: String,
                  description: String,
                  nextBuildNumber: Int,
@@ -40,14 +41,10 @@ trait JenkinsApiTypes { self: core.Core =>
 
     assert(!(building && queued), "Cannot both be building and queued.")
 
-    def friendlyDuration = {
-      val seconds = try {
-        duration.toInt / 1000
-      } catch {
-        case x: Exception => 0
-      }
-      "Took " + (if (seconds <= 90) seconds + " s." else (seconds / 60) + " min.")
-    }
+    def friendlyDuration = Try { 
+      val seconds = duration.toInt / 1000
+      "Took "+ (if (seconds <= 90) s"$seconds s." else s"${seconds / 60} min.")
+    } getOrElse ""
 
     def queued = false
 
@@ -101,7 +98,8 @@ trait JenkinsApiTypes { self: core.Core =>
 import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
-trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { self: core.Core => private type RJF[x] = RootJsonFormat[x]
+trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { self: core.Core with core.Configuration =>
+  private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtJob         : RJF[Job        ] = jsonFormat7(Job)
   implicit lazy val _fmtBuild       : RJF[Build      ] = jsonFormat2(Build)
   implicit lazy val _fmtParam       : RJF[Param      ] = jsonFormat2(Param)
@@ -115,15 +113,13 @@ trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { sel
   implicit lazy val _fmtScmState    : RJF[ScmParams  ] = jsonFormat3(ScmParams)
 }
 
-trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self: core.Core =>
-
-  class JenkinsConnection(val host: String, user: String, token: String) {
-
+trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self: core.Core with core.Configuration =>
+  class JenkinsConnection(config: Config.Jenkins) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._
     import spray.client.pipelining._
 
-    private implicit def connection = setupConnection(host, BasicHttpCredentials(user, token))
+    private implicit def connection = setupConnection(config.host, BasicHttpCredentials(config.user, config.token))
 
     def api(rest: String) = Uri("/" + rest)
 
@@ -163,6 +159,5 @@ trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self:
       })
     }
   }
-
 }
 

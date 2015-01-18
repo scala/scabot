@@ -13,6 +13,8 @@ import spray.util.LoggingContext
 
 import scala.util.control.NonFatal
 
+// TODO (general): switch to async instead of for comprehensions
+
 // https://github.com/eigengo/activator-akka-spray/blob/master/src/main/scala/api/services.scala
 
 /**
@@ -52,6 +54,8 @@ trait Server { self: core.Core =>
   implicit lazy val system: ActorSystem = ActorSystem("scabot")
 
   def startServer() = {
+    // TODO make listen address/port configurable
+    // TODO use https (probably by putting the webhook behind the same nginx as jenkins itself?)
     IO(Http)(system) ! Http.Bind(system.actorOf(Props(new RoutedHttpService(serviceRoute))), "0.0.0.0", port = 8888)
   }
 }

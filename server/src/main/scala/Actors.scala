@@ -24,23 +24,19 @@ trait Actors {
   }
 
   import GithubActor._
-
   class GithubActor extends Actor with ActorLogging {
     override def receive: Receive = {
       case StartProjectActors(configs)   =>
         configs map { case (name, config) =>
-          context.actorOf(Props(new ProjectActor(config)), s"${config.github.user}-${config.github.repo}")
-        } foreach {
-          _ ! Synch
-        }
+          context.actorOf(Props(new ProjectActor(config)), repoActorName(config.github.user, config.github.repo))
+        } foreach { _ ! Synch }
     }
   }
 
   case object Synch extends ProjectMessage
 
   class ProjectActor(config: Config) extends Actor with ActorLogging {
-    lazy val githubApi = new GithubConnection(host = config.github.host, user = config.github.user, repo = config.github.repo, token = config.github.token)
-
+    lazy val githubApi = new GithubConnection(config.github)
     import context._
 
     // find or create actor responsible for PR #`nb`
@@ -52,7 +48,9 @@ trait Actors {
         githubApi.pullRequests.foreach { prs =>
           prs.foreach { pr => prActor(pr.number) ! PullRequestEvent("synchronize", pr.number, pr)}
         }
-        context.system.scheduler.scheduleOnce(30 minutes, self, Synch) // synch every once in a while (not often, since we have the webhook events in principle)
+        // synch every once in a while, just in case we missed a webhook event somehow
+        // TODO make timeout configurable
+        context.system.scheduler.scheduleOnce(30 minutes, self, Synch) 
 
       case ev@PullRequestEvent(action, nb, pull_request) =>
         prActor(nb) ! ev
@@ -68,14 +66,13 @@ trait Actors {
           prParam <- Try(bs.parameters(PARAM_PR)) // we only care about jobs we started, and which thus have this parameter (when restarted manually, they should be carried forward automatically)
           prNum <- Try(prParam.toInt)
         } prActor(prNum) ! js
-
     }
   }
 
 
   class PullRequestActor(pr: Int, config: Config) extends Actor with ActorLogging {
-    lazy val githubApi = new GithubConnection(host = config.github.host, user = config.github.user, repo = config.github.repo, token = config.github.token)
-    lazy val jenkinsApi = new JenkinsConnection(host = config.jenkins.host, user = config.jenkins.user, token = config.jenkins.token)
+    lazy val githubApi  = new GithubConnection(config.github)
+    lazy val jenkinsApi = new JenkinsConnection(config.jenkins)
 
     private var lastSynchronized: Date = None
 
@@ -103,8 +100,7 @@ trait Actors {
 
       case JobState(name, _, BuildState(number, phase, parameters, _, result, full_url, consoleLog)) =>
         log.info(s"Job $name [$number]: $phase --> $result")
-
-        handleJobState(name, number, phase, result, parameters, full_url)
+        handleJobState(name, number, phase, result, parameters, full_url, consoleLog)
 
       case PullRequestComment(body, user, commitId, path, pos, created, update, id) =>
         log.info(s"Comment by $user on $commitId ($path:$pos):\n$body")
@@ -120,7 +116,7 @@ trait Actors {
       //      execCommands(pull)
     }
 
-    private def handleJobState(context: String, jobNumber: Int, phase: String, result: Option[String], parameters: Map[String, String], target_url: String) = {
+    private def handleJobState(context: String, jobNumber: Int, phase: String, result: Option[String], parameters: Map[String, String], target_url: String, consoleLog: Option[String]) = {
       val status = (phase, result) match {
         case ("STARTED", _)       => "pending"
         case (_, Some("SUCCESS")) => "success"
