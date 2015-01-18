@@ -2,4 +2,4 @@ target/
 out/
 .idea
 *.iml
-*.ghpr
+scabot.conf

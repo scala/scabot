@@ -7,7 +7,7 @@ import spray.routing.Directives
 import scala.util.{Success, Failure}
 
 
-trait GithubService extends GithubApi with Directives with core.Core with core.Configuration {
+trait GithubService extends core.Core with GithubApi with Directives { self: core.HttpClient with core.Configuration =>
   import spray.httpx.SprayJsonSupport._
 
   private lazy val UserRepo = """([^/]+)/(.+)""".r
@@ -15,7 +15,7 @@ trait GithubService extends GithubApi with Directives with core.Core with core.C
     val UserRepo(user, repo) = repository.full_name
     val log = s"Processing $ev for $user/$repo"
     system.log.info(log)
-    repoActor(user, repo) ! ev
+    tellProjectActor(user, repo)(ev)
     log
   }
 

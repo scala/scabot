@@ -4,7 +4,7 @@ package jenkins
 import akka.event.Logging
 import spray.routing.Directives
 
-trait JenkinsService extends JenkinsApi with Directives with core.Core with core.Configuration {
+trait JenkinsService extends core.Core with JenkinsApi with Directives { self: core.HttpClient with core.Configuration =>
   import spray.httpx.SprayJsonSupport._
 
   // handle marshalling & routing between http clients and ServiceActor
@@ -24,7 +24,7 @@ trait JenkinsService extends JenkinsApi with Directives with core.Core with core
         for {
           user <- parameters.get(PARAM_REPO_USER)
           repo <- parameters.get(PARAM_REPO_NAME)
-        } yield repoActor(user, repo) ! jobState
+        } yield tellProjectActor(user, repo)(jobState)
       } getOrElse {
         system.log.warning(s"Couldn't identify project for job based on $PARAM_REPO_USER/$PARAM_REPO_NAME in $parameters. Was it started by us?")
       }

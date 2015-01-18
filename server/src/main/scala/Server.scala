@@ -3,8 +3,8 @@ package server
 
 import akka.actor.{Actor, ActorLogging, ActorSystem, Props}
 import akka.io.IO
-import scabot.github.GithubService
-import scabot.jenkins.JenkinsService
+import scabot.github.{GithubApi, GithubService}
+import scabot.jenkins.{JenkinsApi, JenkinsService}
 import spray.can.Http
 import spray.http.StatusCodes._
 import spray.http._
@@ -51,8 +51,6 @@ class RoutedHttpService(route: Route) extends Actor with HttpService with ActorL
 
 
 trait Server { self: core.Core =>
-  implicit lazy val system: ActorSystem = ActorSystem("scabot")
-
   def startServer() = {
     // TODO make listen address/port configurable
     // TODO use https (probably by putting the webhook behind the same nginx as jenkins itself?)
@@ -62,7 +60,7 @@ trait Server { self: core.Core =>
 
 import akka.kernel.Bootable
 
-class Scabot extends Bootable with Server with GithubService with JenkinsService with core.Configuration with Actors {
+class Scabot extends Bootable with Server with GithubService with JenkinsService with core.Configuration with core.HttpClient with Actors {
   def startup = {
     startServer()
     startActors()
@@ -72,3 +70,6 @@ class Scabot extends Bootable with Server with GithubService with JenkinsService
     system.shutdown()
   }
 }
+
+object testingScabot extends GithubApi with JenkinsApi with Actors
+  with core.Configuration with core.NOOPHTTPClient with core.Core

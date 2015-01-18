@@ -1,7 +1,7 @@
 package scabot
 package github
 
-trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions { self: core.Core with core.Configuration => }
+trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions { self: core.Core with core.HttpClient with core.Configuration => }
 
 // definitions in topo-order, no cycles in dependencies
 trait GithubApiTypes { self: core.Core with core.Configuration =>
@@ -91,7 +91,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self:
   // implicit lazy val _fmtAuthApp          : RJF[AuthApp]                       = jsonFormat2(AuthApp)
 }
 
-trait GithubApiActions extends GithubJsonProtocol with core.HttpClient { self: core.Core with core.Configuration =>
+trait GithubApiActions extends GithubJsonProtocol { self: core.Core with core.Configuration with core.HttpClient =>
   class GithubConnection(config: Config.Github) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._

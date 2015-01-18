@@ -6,7 +6,7 @@ import spray.http.BasicHttpCredentials
 import scala.concurrent.Future
 import scala.util.Try
 
-trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions { self: core.Core with core.Configuration => }
+trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions { self: core.Core with core.Configuration with core.HttpClient => }
 
 trait JenkinsApiTypes { self: core.Core with core.Configuration =>
   case class Job(name: String,
@@ -113,7 +113,7 @@ trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { sel
   implicit lazy val _fmtScmState    : RJF[ScmParams  ] = jsonFormat3(ScmParams)
 }
 
-trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient { self: core.Core with core.Configuration =>
+trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.Configuration with core.HttpClient =>
   class JenkinsConnection(config: Config.Jenkins) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._

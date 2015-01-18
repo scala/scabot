@@ -3,7 +3,7 @@ package server
 
 import akka.actor._
 
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.Try
 
@@ -12,12 +12,22 @@ import scala.util.Try
  */
 trait Actors {
   self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi =>
+  implicit lazy val system: ActorSystem = ActorSystem("scabot")
+
+  private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
+
+  // project actors are supervised by the github actor
+  // pull requst actors are supervised by their project actor
+  private def projectActorName(user: String, repo: String) = s"$user-$repo"
+
+  def tellProjectActor(user: String, repo: String, msg: ProjectMessage) =
+    system.actorSelection(githubActor.path / projectActorName(user, repo)) ! msg
+
 
   def startActors() = {
     githubActor ! GithubActor.StartProjectActors(configs)
   }
 
-  lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
 
   object GithubActor {
     case class StartProjectActors(configs: Map[String, Config])
@@ -28,7 +38,7 @@ trait Actors {
     override def receive: Receive = {
       case StartProjectActors(configs)   =>
         configs map { case (name, config) =>
-          context.actorOf(Props(new ProjectActor(config)), repoActorName(config.github.user, config.github.repo))
+          context.actorOf(Props(new ProjectActor(config)), projectActorName(config.github.user, config.github.repo))
         } foreach { _ ! Synch }
     }
   }

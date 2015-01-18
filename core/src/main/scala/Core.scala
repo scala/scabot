@@ -1,11 +1,12 @@
 package scabot
 package core
 
-import akka.actor.{ActorRef, ActorSystem}
+import akka.actor.{ActorSelection, ActorRef, ActorSystem}
 import akka.event.Logging
 import akka.io.IO
 import spray.can.Http
-import spray.http.HttpResponse
+import spray.client.pipelining._
+import spray.http.{HttpCredentials, HttpResponse}
 import spray.httpx.unmarshalling._
 import spray.routing.Route
 import spray.routing.Directives.reject
@@ -20,9 +21,7 @@ trait Core {
 
   def serviceRoute: Route = reject
 
-  def githubActor: ActorRef
-  def repoActor(user: String, repo: String) = system.actorSelection(githubActor.path / repoActorName(user, repo))
-  def repoActorName(user: String, repo: String) = s"$user-$repo"
+  def tellProjectActor(user: String, repo: String)(msg: ProjectMessage): Unit
 
   // marker for messages understood by ProjectActor
   trait ProjectMessage
@@ -30,6 +29,7 @@ trait Core {
   // marker for messages understood by PullRequestActor
   trait PRMessage
 
+  // see also scala-jenkins-infra
   final val PARAM_REPO_USER = "repo_user"
   final val PARAM_REPO_NAME = "repo_name"
   final val PARAM_REPO_REF  = "repo_ref"
@@ -37,7 +37,7 @@ trait Core {
 }
 
 
-trait HttpClient { self : Core =>
+trait HttpClient { self: Core =>
   import spray.can.Http.HostConnectorSetup
   import spray.client.pipelining._
   import spray.http.{HttpCredentials, HttpRequest}
@@ -45,17 +45,18 @@ trait HttpClient { self : Core =>
   // TODO: use spray's url abstraction instead
   implicit class SlashyString(_str: String) { def /(o: Any) = _str +"/"+ o.toString }
 
+  def httpLoggingLevel = akka.event.Logging.DebugLevel //InfoLevel
+
   // use this to initialize an implicit of type Future[SendReceive], for use with p (for "pipeline") and px below
   def setupConnection(host: String, credentials: HttpCredentials): Future[SendReceive] = {
     import akka.pattern.ask
     import akka.util.Timeout
     import scala.concurrent.duration._
     implicit val timeout = Timeout(5 seconds)
-    implicit val ec = self.ec // TODO: why needed?
 
     for (
       Http.HostConnectorInfo(connector, _) <- IO(Http) ? HostConnectorSetup(host = host, port = 443, sslEncryption = true)
-    ) yield addCredentials(credentials) ~> logRequest(system.log/*, akka.event.Logging.InfoLevel*/) ~> sendReceive(connector) ~> logResponse(system.log/*, akka.event.Logging.InfoLevel*/)
+    ) yield addCredentials(credentials) ~> logRequest(system.log, httpLoggingLevel) ~> sendReceive(connector) ~> logResponse(system.log, httpLoggingLevel)
   }
 
   def p[T: FromResponseUnmarshaller](req: HttpRequest)(implicit connection: Future[SendReceive]): Future[T] =
@@ -63,4 +64,10 @@ trait HttpClient { self : Core =>
 
   def px(req: HttpRequest)(implicit connection: Future[SendReceive]): Future[HttpResponse] =
     connection flatMap (_.apply(req))
+}
+
+// for experimenting with the actors logic
+trait NOOPHTTPClient extends HttpClient { self: Core =>
+  override def setupConnection(host: String, credentials: HttpCredentials): Future[SendReceive] =
+    Future.successful{ x => logRequest(system.log, akka.event.Logging.InfoLevel).apply(x); Future.successful(HttpResponse()) }
 }
