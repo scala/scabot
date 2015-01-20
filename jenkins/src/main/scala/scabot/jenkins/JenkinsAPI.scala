@@ -77,6 +77,7 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
   // phase = STARTED | COMPLETED | FINALIZED
   case class BuildState(number: Int, phase: String, parameters: Map[String, String], scm: ScmParams, result: Option[String], full_url: String, log: Option[String])
   case class ScmParams(url: Option[String], branch: Option[String], commit: Option[String]) // TODO can we lift the `Option`s to `BuildState`'s `scm` arg?
+
 }
 
 /*
@@ -138,6 +139,7 @@ trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.
     def buildStatus(name: String, buildNumber: Int) =
       p[BuildStatus](Get(api("job" / name / buildNumber / "api/json")))
 
+
     def buildStatus(url: String) =
       p[BuildStatus](Get(url / "api/json"))
 
@@ -156,6 +158,13 @@ trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.
         reported <-   p[Job](Get(api("job" / job / "api/json"))).flatMap(reportedStati)
       } yield queued ++ reported
     }
+
+    def jobInfo(name: String) =
+      p[Job](Get(api("job" / name / "api/json")))
+
+    def nextBuildNumber(name: String): Future[Int] =
+      jobInfo(name).map(_.lastBuild.number.toInt)
+
   }
 }
 

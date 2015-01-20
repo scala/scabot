@@ -64,9 +64,9 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
   }
   case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None)
 
-  case class IssueComment(body: String, user: User, created_at: Date, updated_at: Date, id: Option[Long] = None) extends PRMessage
-  case class PullRequestComment(body: String, user: User, commit_id: String, path: String, position: Int,
-                                created_at: Date, updated_at: Date, id: Option[Long] = None) extends PRMessage
+  case class IssueComment(body: String, user: Option[User] = None, created_at: Date = None, updated_at: Date = None, id: Option[Long] = None) extends PRMessage
+  case class PullRequestComment(body: String, user: Option[User] = None, commit_id: Option[String] = None, path: Option[String] = None, position: Option[Int] = None,
+                                created_at: Date = None, updated_at: Date = None, id: Option[Long] = None) extends PRMessage
                                 // diff_hunk, original_position, original_commit_id
 
   case class PullRequestEvent(action: String, number: Int, pull_request: PullRequest) extends ProjectMessage with PRMessage
@@ -153,8 +153,8 @@ trait GithubApiActions extends GithubJsonProtocol { self: core.Core with core.Co
     def allLabels                                            = p[List[Label]]             (Get(api("labels")))
     def createLabel(label: Label)                            = p[List[Label]]            (Post(api("labels"), label))
 
-    def addCommitComment(sha: String, comment: IssueComment) = p[IssueComment]           (Post(api("commits" / sha / "comments"), comment))
-    def commitComments(sha: String)                          = p[List[IssueComment]]      (Get(api("commits" / sha / "comments")))
+    def postCommitComment(sha: String, c: PullRequestComment)= p[PullRequestComment]     (Post(api("commits" / sha / "comments"), c))
+    def commitComments(sha: String)                          = p[List[PullRequestComment]](Get(api("commits" / sha / "comments")))
 
     def deleteCommitComment(id: String): Unit                = px                      (Delete(api("comments" / id)))
 
