@@ -132,19 +132,19 @@ trait GithubApiActions extends GithubJsonProtocol { self: core.Core with core.Co
     def api(rest: String) = Uri(s"/repos/${config.user}/${config.repo}" / rest)
     import spray.json._
 
-    def pullRequests                                 = p[List[PullRequest]](Get(api("pulls")))
-    def closedPullRequests                           = p[List[PullRequest]](Get(api("pulls") withQuery Map("state" -> "closed")))
-    def pullRequest(nb: Int)                         = p[PullRequest]      (Get(api("pulls" / nb.toString)))
-    def pullRequestCommits(nb: Int)                  = p[List[Commit]]     (Get(api("pulls" / nb.toString / "commits")))
-    def deletePRComment(id: String)                  = px               (Delete(api("pulls" / "comments" / id)))
+    def pullRequests                               = p[List[PullRequest]] (Get(api("pulls")))
+    def closedPullRequests                         = p[List[PullRequest]] (Get(api("pulls") withQuery Map("state" -> "closed")))
+    def pullRequest(nb: Int)                       = p[PullRequest]       (Get(api("pulls" / nb)))
+    def pullRequestCommits(nb: Int)                = p[List[Commit]]      (Get(api("pulls" / nb / "commits")))
+    def deletePRComment(id: String)                = px                (Delete(api("pulls" / "comments" / id)))
 
-    def pullRequestComments(nb: Int)                 = p[List[PullRequestComment]](Get(api("issues" / nb.toString / "comments")))
-    def addPRComment(nb: Int, comment: IssueComment) = p[IssueComment]           (Post(api("issues" / nb.toString / "comments"), comment))
-    def issue(nb: Int)                               = p[Issue]                   (Get(api("issues" / nb.toString)))
-    def setMilestone(nb: Int, milestone: Int)        = px                       (Patch(api("issues" / nb.toString), JsObject("milestone" -> JsNumber(milestone))))
-    def addLabel(nb: Int, labels: List[Label])       = p[Label]                  (Post(api("issues" / nb.toString / "labels"), labels))
-    def deleteLabel(nb: Int, label: String)          = px                      (Delete(api("issues" / nb.toString / "labels" / label)))
-    def labels(nb: Int)                              = p[List[Label]]             (Get(api("issues" / nb.toString / "labels")))
+    def issueComments(nb: Int)                     = p[List[IssueComment]](Get(api("issues" / nb / "comments")))
+    def postIssueComment(nb: Int, c: IssueComment) = p[IssueComment]     (Post(api("issues" / nb / "comments"), c))
+    def issue(nb: Int)                             = p[Issue]             (Get(api("issues" / nb)))
+    def setMilestone(nb: Int, milestone: Int)      = px                 (Patch(api("issues" / nb), JsObject("milestone" -> JsNumber(milestone))))
+    def addLabel(nb: Int, labels: List[Label])     = p[Label]            (Post(api("issues" / nb / "labels"), labels))
+    def deleteLabel(nb: Int, label: String)        = px                (Delete(api("issues" / nb / "labels" / label)))
+    def labels(nb: Int)                            = p[List[Label]]       (Get(api("issues" / nb / "labels")))
 
     // most recent status comes first in the resulting list!
     def commitStatus(sha: String)                            = p[CombiCommitStatus]  (Get(api("commits" / sha / "status")))
