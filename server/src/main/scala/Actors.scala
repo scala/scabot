@@ -111,9 +111,9 @@ trait Actors {
         log.info(s"Comment by $user:\n$body")
         handleComment(comment)
 
-      case JobState(name, _, BuildState(number, phase, parameters, _, result, full_url, consoleLog)) =>
+      case js@JobState(name, _, BuildState(number, phase, parameters, _, result, full_url, consoleLog)) =>
         log.info(s"Job $name [$number]: $phase --> $result")
-        handleJobState(name, number, phase, result, parameters, full_url, consoleLog)
+        handleJobState(name, js)
 
       case PullRequestComment(body, user, commitId, path, pos, created, update, id) =>
         log.info(s"Comment by $user on $commitId ($path:$pos):\n$body")
@@ -126,27 +126,38 @@ trait Actors {
       checkLGTM(pull)
       propagateEarlierStati(pull)
       buildCommitsIfNeeded(pull)
-      //      execCommands(pull)
+      execCommands(pull)
     }
 
-    private def handleJobState(context: String, jobNumber: Int, phase: String, result: Option[String], parameters: Map[String, String], target_url: String, consoleLog: Option[String]) = {
-      val status = (phase, result) match {
+    private def handleJobState(jobName: String, state: JobState) = {
+      val bs = state.build
+      val status = (bs.phase, bs.result) match {
         case ("STARTED", _)       => "pending"
         case (_, Some("SUCCESS")) => "success"
         case _                    => "failure"
       }
 
-      val msg = s"Job $context [$jobNumber] --> $result."
-      for {
-        sha    <- Future { parameters(PARAM_REPO_REF) }
-        status <- githubApi.postStatus(sha, CommitStatus(status, Some(context), Some(msg), Some(target_url)))
+      def postFailureComment(sha: String) =
+        if (status != "failure") Future.successful("")
+        else for {
+            pull    <- githubApi.pullRequest(pr)
+            state   <- jenkinsApi.buildStatus(jobName, bs.number)
+            comment <- githubApi.postCommitComment(sha, PullRequestComment(
+                             s"Job $jobName failed for ${sha.take(8)}, ${state.friendlyDuration} (ping @${pull.user.login}) [(results)](${state.url}):\n"+
+                             s"If you suspect the failure was spurious, comment `PLS REBUILD $sha` on PR ${pr} to retry.\n"+
+                              "NOTE: New commits are rebuilt automatically as they appear. A forced rebuild is only necessary for transient failures.\n"+
+                              "`PLS REBUILD` without a sha will force a rebuild for all commits."))
+          } yield comment.body
+
+      val statusMsg = s"Job $jobName [$bs.jobNumber] --> $bs.result."
+      val postStatus = for {
+        sha    <- Future { bs.parameters(PARAM_REPO_REF) }
+        status <- githubApi.postStatus(sha, CommitStatus(status, Some(jobName), Some(statusMsg), Some(state.url)))
+        _      <- postFailureComment(sha)
       } yield status
-    }  onFailure {
-      case e => log.info(s"handleJobState($context, $jobNumber, $phase, $result, $parameters) failed: $e");
-    }
 
-
-    private def handleComment(comment: IssueComment) = {
+      postStatus onFailure { case e => log.info(s"handleJobState($context, ${bs.number}, ${bs.phase}, ${bs.result}, ${bs.parameters}) failed: $e") }
+      postStatus
     }
 
 
@@ -181,7 +192,7 @@ trait Actors {
     private def hasLabelNamed(name: String) = githubApi.labels(pr).map(_.exists(_.name == name))
     private def checkLGTM(pull: PullRequest) = for {
     // purposefully only at start of line to avoid conditional LGTMs
-      hasLGTM <- githubApi.pullRequestComments(pr).map(_.exists(_.body.startsWith("LGTM")))
+      hasLGTM <- githubApi.issueComments(pr).map(_.exists(_.body.startsWith("LGTM")))
       hasReviewedLabel <- hasLabelNamed("reviewed")
     } yield { // TODO react to labeled/unlabeled event on webhhook
       if (hasLGTM) { if (!hasReviewedLabel) githubApi.addLabel(pr, List(Label("reviewed"))) }
@@ -210,7 +221,7 @@ trait Actors {
       }
     }
 
-    private def relevantMostRecentBuild(url: Option[String], sha: String, ignoreBuildsBefore: Option[Int]): Future[BuildStatus] = {
+    private def relevantMostRecentBuild(url: Option[String], sha: String): Future[BuildStatus] = {
       def relevant(bs: BuildStatus) = {
         val expected = Map(
           PARAM_PR        -> pr.toString,
@@ -218,7 +229,7 @@ trait Actors {
           PARAM_REPO_NAME -> config.github.repo,
           PARAM_REPO_REF  -> sha)
 
-        bs.paramsMatch(expected) && ignoreBuildsBefore.forall(bs.number >= _)
+        bs.paramsMatch(expected)
       }
 
       // both futures either fail or yield the most recent relevant status
@@ -232,8 +243,8 @@ trait Actors {
       * if no status found, fail --> we'll launch a build as a "fallback"
       *
       */
-    def ensureStatus(sha: String, url: Option[String], ignoreBuildsBefore: Option[Int], synchOnly: Boolean): Future[String] = (for {
-      mrb <- relevantMostRecentBuild(url, sha, ignoreBuildsBefore)
+    private def ensureStatus(sha: String, url: Option[String], synchOnly: Boolean): Future[String] = (for {
+      mrb <- relevantMostRecentBuild(url, sha)
     } yield {
       // there was a build that was more recent than the force build command (if any)
       if (url.contains(mrb.url)) "Relevant build found at $url (for ${sha.take(6)})"
@@ -241,100 +252,97 @@ trait Actors {
         self ! mrb // the status we found on the PR didn't match what Jenkins told us --> synch while we're at it
         "Synching status for ${sha.take(6)} based on ${mrb.url}."
       }
-    }).recover{case _ if synchOnly => "Not building because synchOnly."}
+    }) recover { case _ if synchOnly => "Not building because synchOnly." }
 
 
     // for all commits with pending status, or without status entirely, ensure that a jenkins job has been started
-    // if `ignoreBuildsBefore` is specified, jobs before it will be ignored (by job number)
-    private def buildCommitsIfNeeded(pull: PullRequest, ignoreBuildsBefore: Option[Int] = None, synchOnly: Boolean = false): Future[List[String]] =
+    // if `forceRebuild` is specified, jobs before it will be ignored (by job number)
+    private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[String]] =
       for {
         commits <- githubApi.pullRequestCommits(pr)
-        results <- Future.sequence(for(commit <- commits) yield {
+        results <- Future.sequence(commits map { commit =>
           log.debug(s"Build commit? $commit")
-          import CommitStatus._
 
-          val fetchCommitStatus = githubApi.commitStatus(commit.sha)
-          fetchCommitStatus.onFailure {  case e => log.info(s"Couldn't get status for ${commit.sha}: $e") }
+          val build =
+            if (forceRebuild) launchBuild(commit.sha)
+            else buildCommitIfNeeded(commit.sha, synchOnly)
 
-          (for {
-            status <- fetchCommitStatus.map { status =>
-              if (status.pending || ignoreBuildsBefore.nonEmpty) status
-              else throw new NoSuchElementException(s"No need to build: ${commit.sha} is ${status.state}")
-            }
-            jobUrl = status.statuses.headOption.flatMap(_.target_url)
-            buildRes <- ensureStatus(commit.sha, jobUrl, ignoreBuildsBefore, synchOnly) fallbackTo {
-              // we couldn't find the expected status --> launch build
-              launchBuild(commit.sha)
-            }
-          } yield buildRes).recover {
-            case e: NoSuchElementException => e.getMessage
-          }
+          build
         })
       } yield results
 
-    // onFailure { case e => log.info(s"Couldn't retrieve list of commits: $e") }
+    private def buildCommitIfNeeded(sha: String, synchOnly: Boolean): Future[String] = {
+      import CommitStatus._
 
-//    def execCommands(pullRequest: PullRequest) = {
-//      val IGNORE_NOTE_TO_SELF = "(kitty-note-to-self: ignore "
-//      val comments = ghapi.pullrequestcomments(user, repo, pullNum)
-//      // must add a comment that starts with the first element of each returned pair
-//      def findNewCommands(command: String): List[(String, String)] =
-//        comments collect { case c
-//          if c.body.contains(command)
-//            && !comments.exists(_.body.startsWith(IGNORE_NOTE_TO_SELF+ c.id)) =>
-//
-//          (IGNORE_NOTE_TO_SELF+ c.id +")\n", c.body)
-//        }
-//
-//      findNewCommands("PLS REBUILD") foreach { case (prefix, body) =>
-//        val job = (
-//          (for (
-//            jobNameLines <- body.split("PLS REBUILD").lastOption;
-//            jobName <- jobNameLines.lines.take(1).toList.headOption)
-//          yield jobName) getOrElse ""
-//          )
-//        val trimmed = job.trim
-//        val (jobs, shas) =
-//          if (trimmed.startsWith("ALL")) (jenkinsJobs, commits.map(_.sha))
-//          else if (trimmed.startsWith("/")) trimmed.drop(1).split("@") match { // generated by us for a (spurious) abort
-//            case Array(job, sha) => (Set(JenkinsJob(job)), List(ghapi.normalizeSha(user, repo, sha)))
-//            case _ => (Set[JenkinsJob](), Nil)
-//          }
-//          else (jenkinsJobs.filter(j => trimmed.contains(j.name)), commits.map(_.sha))
-//
-//        ghapi.addPRComment(user, repo, pullNum,
-//          prefix +":cat: Roger! Rebuilding "+ jobs.map(_.name).mkString(", ") +" for "+ shas.map(_.take(8)).mkString(", ") +". :rotating_light:\n")
-//
-//        shas foreach (sha => jobs foreach (j => buildCommit(sha, j, force = true)))
-//      }
-//
-//      findNewCommands("BUILDLOG?") map { case (prefix, body) =>
-//        ghapi.addPRComment(user, repo, pullNum, prefix + buildLog(commits))
-//      }
-//
-//      findNewCommands("PLS SYNCH") map { case (prefix, body) =>
-//        ghapi.addPRComment(user, repo, pullNum, prefix + ":cat: Synchronaising! :pray:")
-//        synch(commits)
-//      }
-//
-//      // delete all commit comments -- don't delete PR comments as they would re-trigger
-//      // the commands that caused them originally
-//      findNewCommands("NOLITTER!") map { case (prefix, body) =>
-//        ghapi.addPRComment(user, repo, pullNum, prefix + ":cat: cleaning up... sorry! :cat:")
-//        cleanLitter(pull, commits)
-//      }
-//
-//    }
+      val fetchCommitStatus = githubApi.commitStatus(sha)
+      fetchCommitStatus.onFailure { case e => log.info(s"Couldn't get status for ${sha}: $e")}
 
-//    private def jobState() = {
-//      if (success) checkSuccess(pull)
-//      else needsAttention(pull)
-//
-//      active.-=((sha, job))
-//      forced.-=((sha, job))
-//
-//    }
+      (for {
+        status <- fetchCommitStatus.map { status =>
+          if (status.pending) status
+          else throw new NoSuchElementException(s"No need to build: ${sha} is ${status.state}")
+        }
+        jobUrl = status.statuses.headOption.flatMap(_.target_url)
+        buildRes <- ensureStatus(sha, jobUrl, synchOnly) fallbackTo {
+          // we couldn't find the expected status --> launch build
+          launchBuild(sha)
+        }
+      } yield buildRes) recover {
+        case e: NoSuchElementException => e.getMessage
+      }
+    }
+
+    lazy val defaultReply: String => Unit = msg => githubApi.postIssueComment(pr, IssueComment(msg))
+
+    private def handleComment(comment: IssueComment, memento: String = ""): Future[Unit] = {
+      implicit val replyWithMemento: String => Unit = msg => githubApi.postIssueComment(pr, IssueComment(memento + msg))
+      comment.body match {
+        case REBUILD_SHA(sha) => commandRebuildSha(sha)
+        case REBUILD_ALL()    => commandRebuildAll()
+        case SYNCH()          => commandSynch()
+        case _                => Future {log.debug(s"Unhandled comment: $comment")}
+      }
+    }
+
+
+    private final val REBUILD_SHA = """^PLS REBUILD (\w+)""".r.unanchored
+    def commandRebuildSha(sha: String)(implicit reply: String => Unit = defaultReply) =
+      for (res <- launchBuild(sha)) yield {
+        reply(s":cat: Roger! Rebuilding ${sha take 6}. :rotating_light:\n$res")
+      }
+
+    private final val REBUILD_ALL = """^PLS REBUILD""".r.unanchored
+    def commandRebuildAll()(implicit reply: String => Unit = defaultReply) =
+      for {
+        pull     <- githubApi.pullRequest(pr)
+        buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
+      } yield {
+        reply(s":cat: Roger! Rebuilding all the commits! :rotating_light:\n")
+      }
+
+    private final val SYNCH = """^PLS SYNCH""".r.unanchored
+    def commandSynch()(implicit reply: String => Unit = defaultReply) =
+      for {
+        pull     <- githubApi.pullRequest(pr)
+        buildRes <- buildCommitsIfNeeded(pull, forceRebuild = false, synchOnly = true)
+      } yield {
+        reply(":cat: Synchronaising! :pray:")
+      }
+
+    final private val IGNORE_NOTE_TO_SELF = "(kitty-note-to-self: ignore "
+
+    private def hasCommand(body: String) = body.startsWith("PLS ")
+
+    // must add a comment that starts with the first element of each returned pair
+    private def unprocessedCommands(comments: List[IssueComment]): List[(IssueComment, String)] = {
+      comments collect { case c if hasCommand(c.body) && !comments.exists(_.body.startsWith(IGNORE_NOTE_TO_SELF+ c.id)) =>
+        (c, IGNORE_NOTE_TO_SELF+ c.id +")\n")
+      }
+    }
+
+    def execCommands(pullRequest: PullRequest) = for {
+      comments       <- githubApi.issueComments(pr)
+      commentResults <- Future.sequence(unprocessedCommands(comments).map(Function.tupled(handleComment)))
+    } yield commentResults
   }
-
-
 }
