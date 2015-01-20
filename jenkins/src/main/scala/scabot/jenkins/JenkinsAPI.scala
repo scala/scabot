@@ -32,23 +32,29 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     override def toString = "Parameters(%s)" format (parameters mkString ", ")
   }
 
+  implicit class BuildStatusOps(_bs: BuildStatus) {
+    def isSuccess = !_bs.building && _bs.result == "SUCCESS"
+
+    def paramsMatch(expectedArgs: Map[String, String]): Boolean =
+      _bs.actions.flatMap(_.parameters).flatten.collect {
+        case Param(n, Some(v)) if expectedArgs.isDefinedAt(n) => (n, v)
+      }.toMap == expectedArgs
+  }
+
   case class BuildStatus(number: Int,
                          result: String,
                          building: Boolean,
                          duration: Long,
                          actions: List[Action],
                          url: String) {
-
     assert(!(building && queued), "Cannot both be building and queued.")
 
-    def friendlyDuration = Try { 
+    def friendlyDuration = Try {
       val seconds = duration.toInt / 1000
       "Took "+ (if (seconds <= 90) s"$seconds s." else s"${seconds / 60} min.")
     } getOrElse ""
 
     def queued = false
-
-    def isSuccess = !building && result == "SUCCESS"
 
     override def toString = s"Build $number: ${if (building) "BUILDING" else result} $friendlyDuration ($url)."
   }
@@ -139,24 +145,16 @@ trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.
       *
       * Only statuses for the specified job (`job.name`) that have parameters that match all of `expectedArgs`
       */
-    def buildStatusForJob(job: String, expectedArgs: Map[String, String]): Future[Stream[BuildStatus]] = {
+    def buildStatusesForJob(job: String): Future[Stream[BuildStatus]] = {
       def queuedStati(q: Queue) = q.items.toStream.filter(_.jobName == job).map(_.toStatus)
       def reportedStati(info: Job) = Future.sequence(info.builds.sorted.toStream.map(b => buildStatus(job, b.number)))
 
       // hack: retrieve queued jobs from queue/api/json
       // queued items must come first, they have been added more recently or they wouldn't have been queued
-      val all = for {
+      for {
         queued   <- p[Queue](Get(api("queue/api/json"))).map(queuedStati)
         reported <-   p[Job](Get(api("job" / job / "api/json"))).flatMap(reportedStati)
       } yield queued ++ reported
-
-      all.map(_.filter { status =>
-        val paramsForExpectedArgs = status.actions.flatMap(_.parameters).flatten.collect {
-          case Param(n, Some(v)) if expectedArgs.isDefinedAt(n) => (n, v)
-        }.toMap
-
-        paramsForExpectedArgs == expectedArgs
-      })
     }
   }
 }

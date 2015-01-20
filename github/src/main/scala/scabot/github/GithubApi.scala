@@ -36,7 +36,32 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
   case class CommitInfo(message: String, timestamp: Date, author: Author, committer: Author)
     // added: Option[List[String]], removed: Option[List[String]], modified: Option[List[String]]
   case class Commit(sha: String, commit: CommitInfo, url: Option[String] = None)
+
+  implicit  class CombiCommitStatusOps(_cs: CombiCommitStatus) {
+    import CommitStatus._
+
+    def success  = _cs.state == SUCCESS
+    def pending  = _cs.state == PENDING
+    def failure  = _cs.state == FAILURE
+  }
   case class CombiCommitStatus(state: String, sha: String, statuses: List[CommitStatus], total_count: Int)
+
+  implicit  class CommitStatusOps(_cs: CommitStatus) {
+    import CommitStatus._
+
+    def combined = _cs.context == Some(COMBINED)
+    def success  = _cs.state == SUCCESS
+    def pending  = _cs.state == PENDING
+    def failure  = _cs.state == FAILURE
+  }
+  object CommitStatus {
+    final val SUCCESS = "success"
+    final val PENDING = "pending"
+    final val FAILURE = "failure"
+
+    // context to enforce that last commit is green only if all priort commits are also green
+    final val COMBINED = "combined"
+  }
   case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None)
 
   case class IssueComment(body: String, user: User, created_at: Date, updated_at: Date, id: Option[Long] = None) extends PRMessage
@@ -76,7 +101,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self:
 
   implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat4(CommitInfo)
   implicit lazy val _fmtCommit           : RJF[Commit]                        = jsonFormat3(Commit)
-  implicit lazy val _fmtCommitStatus     : RJF[CommitStatus]                  = jsonFormat4(CommitStatus)
+  implicit lazy val _fmtCommitStatus     : RJF[CommitStatus]                  = jsonFormat4(CommitStatus.apply)
   implicit lazy val _fmtCombiCommitStatus: RJF[CombiCommitStatus]             = jsonFormat4(CombiCommitStatus)
 
   implicit lazy val _fmtIssueComment     : RJF[IssueComment]                  = jsonFormat5(IssueComment)
