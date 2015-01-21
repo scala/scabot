@@ -133,6 +133,9 @@ trait Actors {
       execCommands(pull)
     }
 
+    // TODO: is this necessary? in any case, github refuses non-https links, it seems
+    private def commitTargetUrl(url: String) = url.replace("http://", "https://")
+
     private def commitState(bs: BuildStatus) =
       if (bs.building) CommitStatus.PENDING
       else if (bs.isSuccess) CommitStatus.SUCCESS
@@ -142,7 +145,7 @@ trait Actors {
       CommitStatus(commitState(bs),
         context     = Some(jobName),
         description = Some(s"[${bs.number}}] ${bs.result}, ${bs.friendlyDuration}".take(140)),
-        target_url  = Some(bs.url))
+        target_url  = Some(commitTargetUrl(bs.url)))
     }
 
     private def combiStatus(state: String, msg: String): CommitStatus =
@@ -188,7 +191,7 @@ trait Actors {
 
       for {
         mostRecentBuild <- jenkinsApi.buildStatusesForJob(job).map(_.find(_.paramsMatch(expected))) // first == most recent
-        jenkinsView = mostRecentBuild.map(bs => (commitState(bs), bs.url))
+        jenkinsView = mostRecentBuild.map(bs => (commitState(bs), commitTargetUrl(bs.url)))
         githubView  = combiCommitStatus.statuses.find(_.context == Some(job)).flatMap(cs => cs.target_url.map(url => (cs.state, url)))
         if jenkinsView != githubView
       } yield {
