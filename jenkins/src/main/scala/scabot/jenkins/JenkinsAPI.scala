@@ -75,7 +75,7 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
   // for https://wiki.jenkins-ci.org/display/JENKINS/Notification+Plugin
   case class JobState(name: String, url: String, build: BuildState) extends ProjectMessage with PRMessage
   // phase = STARTED | COMPLETED | FINALIZED
-  case class BuildState(number: Int, phase: String, parameters: Map[String, String], scm: ScmParams, result: Option[String], full_url: String, log: Option[String])
+  case class BuildState(number: Int, phase: String, parameters: Map[String, String], scm: ScmParams, result: Option[String], full_url: String, log: Option[String]) // TODO result always seems to be None??
   case class ScmParams(url: Option[String], branch: Option[String], commit: Option[String]) // TODO can we lift the `Option`s to `BuildState`'s `scm` arg?
 
 }

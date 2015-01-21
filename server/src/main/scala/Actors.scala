@@ -111,9 +111,9 @@ trait Actors {
         log.info(s"Comment by $user:\n$body")
         handleComment(comment)
 
-      case js@JobState(name, _, BuildState(number, phase, parameters, _, result, full_url, consoleLog)) =>
-        log.info(s"Job $name [$number]: $phase --> $result")
-        handleJobState(name, js)
+      case js@JobState(name, _, BuildState(number, phase, parameters, _, _, full_url, consoleLog)) =>
+        log.info(s"Job $name [$number]: $phase") // result is not passed in correctly?
+        handleJobState(name, number, parameters(PARAM_REPO_REF)) // will fetch actual status from jenkins
 
       case PullRequestComment(body, user, commitId, path, pos, created, update, id) =>
         log.info(s"Comment by $user on $commitId ($path:$pos):\n$body")
@@ -129,46 +129,51 @@ trait Actors {
       execCommands(pull)
     }
 
-    private def handleJobState(jobName: String, state: JobState) = {
-      val bs = state.build
-      val status = (bs.phase, bs.result) match {
-        case ("STARTED", _)       => "pending"
-        case (_, Some("SUCCESS")) => "success"
-        case _                    => "failure"
-      }
+    private def commitState(bs: BuildStatus) =
+      if (bs.building) CommitStatus.PENDING
+      else if (bs.isSuccess) CommitStatus.SUCCESS
+      else CommitStatus.FAILURE
 
-      def postFailureComment(sha: String) =
-        if (status != "failure") Future.successful("")
-        else for {
-            pull    <- githubApi.pullRequest(pr)
-            state   <- jenkinsApi.buildStatus(jobName, bs.number)
-            comment <- githubApi.postCommitComment(sha, PullRequestComment(
-                             s"Job $jobName failed for ${sha.take(8)}, ${state.friendlyDuration} (ping @${pull.user.login}) [(results)](${state.url}):\n"+
-                             s"If you suspect the failure was spurious, comment `PLS REBUILD $sha` on PR ${pr} to retry.\n"+
-                              "NOTE: New commits are rebuilt automatically as they appear. A forced rebuild is only necessary for transient failures.\n"+
-                              "`PLS REBUILD` without a sha will force a rebuild for all commits."))
-          } yield comment.body
+    private def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
+      CommitStatus(commitState(bs),
+        context     = Some(jobName),
+        description = Some(s"[${bs.number}}] ${bs.result}, ${bs.friendlyDuration}".take(140)),
+        target_url  = Some(bs.url.replace("http://", "https://")))
+    }
 
-      val statusMsg = s"Job $jobName [$bs.jobNumber] --> $bs.result."
+    private def combiStatus(state: String, msg: String): CommitStatus =
+      CommitStatus(state, context = Some(CommitStatus.COMBINED), description = Some(msg.take(140)))
+
+    private def handleJobState(jobName: String, nb: Int, sha: String) = {
+      def postFailureComment(bs: BuildStatus) =
+        for {
+          pull    <- githubApi.pullRequest(pr)
+          comment <- githubApi.postCommitComment(sha, PullRequestComment(
+                           s"Job $jobName failed for ${sha.take(8)}, ${bs.friendlyDuration} (ping @${pull.user.login}) [(results)](${bs.url}):\n"+
+                           s"If you suspect the failure was spurious, comment `PLS REBUILD $sha` on PR ${pr} to retry.\n"+
+                            "NOTE: New commits are rebuilt automatically as they appear. A forced rebuild is only necessary for transient failures.\n"+
+                            "`PLS REBUILD` without a sha will force a rebuild for all commits."))
+        } yield comment.body
+
       val postStatus = for {
-        sha    <- Future { bs.parameters(PARAM_REPO_REF) }
-        status <- githubApi.postStatus(sha, CommitStatus(status, Some(jobName), Some(statusMsg), Some(state.url)))
-        _      <- postFailureComment(sha)
-      } yield status
+        bs        <- jenkinsApi.buildStatus(jobName, nb)
+        posting   <- githubApi.postStatus(sha, commitStatus(jobName, bs))
+        _         <- if (bs.building || bs.isSuccess) Future.successful("") else postFailureComment(bs)
+      } yield posting
 
-      postStatus onFailure { case e => log.info(s"handleJobState($context, ${bs.number}, ${bs.phase}, ${bs.result}, ${bs.parameters}) failed: $e") }
+      postStatus onFailure { case e => log.warning(s"handleJobState($jobName, $nb, $sha) failed: $e") }
       postStatus
     }
 
 
-    private def launchBuild(sha: String): Future[String] = {
-      val fut = jenkinsApi.buildJob(config.jenkins.job, Map(
+    private def launchBuild(sha: String, job: String = config.jenkins.job): Future[String] = {
+      val fut = jenkinsApi.buildJob(job, Map(
         PARAM_PR        -> pr.toString,
         PARAM_REPO_USER -> config.github.user,
         PARAM_REPO_NAME -> config.github.repo,
         PARAM_REPO_REF  -> sha
       ))
-      fut onFailure { case e =>  log.info(s"launchBuild($sha) failed: $e") }
+      fut onFailure { case e =>  log.warning(s"launchBuild($sha, $job) failed: $e") }
       fut
     }
 
@@ -207,95 +212,87 @@ trait Actors {
         commits       <- githubApi.pullRequestCommits(pr)
         earlierStati  <- Future.sequence(commits.init.map(c => githubApi.commitStatus(c.sha)))
         failingCommits = earlierStati.filterNot(_.success) // pending/failure
-      } yield {
-        (if (failingCommits.isEmpty) {
-          // override any prior status in the COMBINED context
-          // the last commit's status doesn't matter -- it'll be considered directly by github
-          (SUCCESS, "All previous commits successful.")
-        } else {
-          val worstState = if (failingCommits.exists(_.failure)) FAILURE else PENDING
-          (worstState, s"Found earlier commit(s) marked $worstState: ${failingCommits.map(_.sha.take(6)).mkString(", ")}")
-        }) match { case (state, msg) =>
-          githubApi.postStatus(commits.last.sha, CommitStatus(state, Some(COMBINED), Some(msg)))
-        }
+        posting       <- githubApi.postStatus(commits.last.sha,
+          if (failingCommits.isEmpty) {
+            // override any prior status in the COMBINED context
+            // the last commit's status doesn't matter -- it'll be considered directly by github
+            combiStatus(SUCCESS, "All previous commits successful.")
+          } else {
+            val worstState = if (failingCommits.exists(_.failure)) FAILURE else PENDING
+            combiStatus(worstState, s"Found earlier commit(s) marked $worstState: ${failingCommits.map(_.sha.take(6)).mkString(", ")}")
+          })
+      } yield posting
+    }
+
+    private def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
+      /* We've built this before and we were asked to rebuild. For all jobs that have ended in failure, launch a build.
+       */
+      if (combiCommitStatus.total_count > 0 && (rebuild || gatherAllJobs)) {
+        combiCommitStatus.statuses.groupBy(_.context).collect {
+          case (Some(job), stati)
+            if job != CommitStatus.COMBINED &&
+               (stati.headOption.forall(_.failure) || gatherAllJobs) => // most recent status was a failure (or, weirdly, there were no statuses -- that would be a github bug)
+          job
+        }.toList
+      } else {
+        if (combiCommitStatus.total_count == 0 || gatherAllJobs) List(config.jenkins.job) // first time
+        else Nil // rebuild wasn't requested, and results were there: we're done
       }
     }
 
-    private def relevantMostRecentBuild(url: Option[String], sha: String): Future[BuildStatus] = {
-      def relevant(bs: BuildStatus) = {
-        val expected = Map(
-          PARAM_PR        -> pr.toString,
-          PARAM_REPO_USER -> config.github.user,
-          PARAM_REPO_NAME -> config.github.repo,
-          PARAM_REPO_REF  -> sha)
-
-        bs.paramsMatch(expected)
-      }
-
-      // both futures either fail or yield the most recent relevant status
-      val paramsMatchAtUrl = Future { url.get }.flatMap(url => jenkinsApi.buildStatus(url).filter(relevant))
-      val hasMatchingBuild = jenkinsApi.buildStatusesForJob(config.jenkins.job).map(_.find(relevant).get)
-
-      paramsMatchAtUrl fallbackTo hasMatchingBuild
-    }
-
-    /** make sure the commit has the expected status (updating it, to reflect what Jenkins told us)
-      * if no status found, fail --> we'll launch a build as a "fallback"
-      *
-      */
-    private def ensureStatus(sha: String, url: Option[String], synchOnly: Boolean): Future[String] = (for {
-      mrb <- relevantMostRecentBuild(url, sha)
-    } yield {
-      // there was a build that was more recent than the force build command (if any)
-      if (url.contains(mrb.url)) "Relevant build found at $url (for ${sha.take(6)})"
-      else {
-        self ! mrb // the status we found on the PR didn't match what Jenkins told us --> synch while we're at it
-        "Synching status for ${sha.take(6)} based on ${mrb.url}."
-      }
-    }) recover { case _ if synchOnly => "Not building because synchOnly." }
+//    /** synch status we got from jenkins with what's on github
+//      * make sure the commit has the expected status (updating it, to reflect what Jenkins told us)
+//      * check status of all jobs, not just the main one (which is a flow that spawns others, which also report their status)
+//      */
+//    private def synchGithubFromJenkins(sha: String, includeFailed: Boolean): Future[List[String]] = {
+////      def relevant(bs: BuildStatus) = {
+    //        val expected = Map(
+    //          PARAM_PR        -> pr.toString,
+    //          PARAM_REPO_USER -> config.github.user,
+    //          PARAM_REPO_NAME -> config.github.repo,
+    //          PARAM_REPO_REF  -> combiCommitStatus.sha)
+    //
+    //        bs.paramsMatch(expected)
+    //      }
+    //      bs <- jenkinsApi.buildStatusesForJob(job).map(_.find(relevant).get)
+//      def synch() = {
+//        if (url.contains(mrb.url)) "Relevant build found at $url (for ${sha.take(6)})"
+//        else {
+//          self ! mrb // the status we found on the PR didn't match what Jenkins told us --> synch while we're at it
+//          "Synching status for ${sha.take(6)} based on ${mrb.url}."
+//        }
+//      }
+//
+//    }
 
 
     // for all commits with pending status, or without status entirely, ensure that a jenkins job has been started
     // if `forceRebuild` is specified, jobs before it will be ignored (by job number)
-    private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[String]] =
+    private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[List[String]]] = {
+      def fetchCommitStatus(sha: String) = {
+        val fetcher = githubApi.commitStatus(sha)
+        fetcher.onFailure { case e => log.warning(s"Couldn't get status for ${sha}: $e")}
+        fetcher
+      }
+
       for {
         commits <- githubApi.pullRequestCommits(pr)
         results <- Future.sequence(commits map { commit =>
-          log.debug(s"Build commit? $commit")
-
-          val build =
-            if (forceRebuild) launchBuild(commit.sha)
-            else buildCommitIfNeeded(commit.sha, synchOnly)
-
-          build
+          log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
+          for {
+            combiCs  <- fetchCommitStatus(commit.sha)
+            todo     <- jobsTodo(combiCs, rebuild = forceRebuild, gatherAll = synchOnly)
+            buildRes <-
+              if (synchOnly) Future.successful(Nil) // TODO: synchGithubFromJenkins
+              else Future.sequence(todo.map(job => launchBuild(combiCs.sha, job))) // using combiCs.sha for consistency with jobsTodo
+          } yield buildRes
         })
       } yield results
-
-    private def buildCommitIfNeeded(sha: String, synchOnly: Boolean): Future[String] = {
-      import CommitStatus._
-
-      val fetchCommitStatus = githubApi.commitStatus(sha)
-      fetchCommitStatus.onFailure { case e => log.info(s"Couldn't get status for ${sha}: $e")}
-
-      (for {
-        status <- fetchCommitStatus.map { status =>
-          if (status.pending) status
-          else throw new NoSuchElementException(s"No need to build: ${sha} is ${status.state}")
-        }
-        jobUrl = status.statuses.headOption.flatMap(_.target_url)
-        buildRes <- ensureStatus(sha, jobUrl, synchOnly) fallbackTo {
-          // we couldn't find the expected status --> launch build
-          launchBuild(sha)
-        }
-      } yield buildRes) recover {
-        case e: NoSuchElementException => e.getMessage
-      }
     }
 
-    lazy val defaultReply: String => Unit = msg => githubApi.postIssueComment(pr, IssueComment(msg))
 
-    private def handleComment(comment: IssueComment, memento: String = ""): Future[Unit] = {
-      implicit val replyWithMemento: String => Unit = msg => githubApi.postIssueComment(pr, IssueComment(memento + msg))
+    private def handleComment(comment: IssueComment): Future[Unit] = {
+      implicit val replyWithMemento: String => Unit = msg => githubApi.postIssueComment(pr, IssueComment(mementoFor(comment) + ")\n" + msg))
       comment.body match {
         case REBUILD_SHA(sha) => commandRebuildSha(sha)
         case REBUILD_ALL()    => commandRebuildAll()
@@ -306,13 +303,13 @@ trait Actors {
 
 
     private final val REBUILD_SHA = """^PLS REBUILD (\w+)""".r.unanchored
-    def commandRebuildSha(sha: String)(implicit reply: String => Unit = defaultReply) =
+    def commandRebuildSha(sha: String)(implicit reply: String => Unit) =
       for (res <- launchBuild(sha)) yield {
         reply(s":cat: Roger! Rebuilding ${sha take 6}. :rotating_light:\n$res")
       }
 
     private final val REBUILD_ALL = """^PLS REBUILD""".r.unanchored
-    def commandRebuildAll()(implicit reply: String => Unit = defaultReply) =
+    def commandRebuildAll()(implicit reply: String => Unit) =
       for {
         pull     <- githubApi.pullRequest(pr)
         buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
@@ -321,7 +318,7 @@ trait Actors {
       }
 
     private final val SYNCH = """^PLS SYNCH""".r.unanchored
-    def commandSynch()(implicit reply: String => Unit = defaultReply) =
+    def commandSynch()(implicit reply: String => Unit) =
       for {
         pull     <- githubApi.pullRequest(pr)
         buildRes <- buildCommitsIfNeeded(pull, forceRebuild = false, synchOnly = true)
@@ -334,15 +331,15 @@ trait Actors {
     private def hasCommand(body: String) = body.startsWith("PLS ")
 
     // must add a comment that starts with the first element of each returned pair
-    private def unprocessedCommands(comments: List[IssueComment]): List[(IssueComment, String)] = {
-      comments collect { case c if hasCommand(c.body) && !comments.exists(_.body.startsWith(IGNORE_NOTE_TO_SELF+ c.id)) =>
-        (c, IGNORE_NOTE_TO_SELF+ c.id +")\n")
-      }
-    }
+    private def unprocessedCommands(comments: List[IssueComment]): List[IssueComment] =
+      comments filter { c => hasCommand(c.body) && !comments.exists(_.body.startsWith(mementoFor(c))) }
+
+    private def mementoFor(c: IssueComment): String =
+      IGNORE_NOTE_TO_SELF + c.id.getOrElse("???")
 
     def execCommands(pullRequest: PullRequest) = for {
       comments       <- githubApi.issueComments(pr)
-      commentResults <- Future.sequence(unprocessedCommands(comments).map(Function.tupled(handleComment)))
+      commentResults <- Future.sequence(unprocessedCommands(comments).map(handleComment))
     } yield commentResults
   }
 }
