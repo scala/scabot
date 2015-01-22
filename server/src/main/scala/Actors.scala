@@ -215,20 +215,32 @@ trait Actors {
     }
 
     private def synchBuildStatus(combiCommitStatus: CombiCommitStatus, job: String): Future[String] = {
+      val jobStatus    = combiCommitStatus.statuses.find(_.context == Some(job))
+      val githubReport = jobStatus.flatMap(cs => cs.target_url.map(url => (cs.state, url)))
+
+      // summarize jenkins's report as the salient parts of a CommitStatus (should match what github reported in combiCommitStatus)
+      def summarizeBuildStatus(bs: BuildStatus) = (commitState(bs), commitTargetUrl(bs))
       val expected = jobParams(combiCommitStatus.sha)
 
-      for {
+      val syncher = (for {
+        bss <- jenkinsApi.buildStatusesForJob(job)
         mostRecentBuild <- jenkinsApi.buildStatusesForJob(job).map(_.find(_.paramsMatch(expected))) // first == most recent
-        jenkinsView = mostRecentBuild.map(bs => (commitState(bs), commitTargetUrl(bs.url)))
-        githubView  = combiCommitStatus.statuses.find(_.context == Some(job)).flatMap(cs => cs.target_url.map(url => (cs.state, url)))
-        if jenkinsView != githubView
+        if githubReport != mostRecentBuild.map(summarizeBuildStatus)
       } yield {
         // the status we found on the PR didn't match what Jenkins told us --> synch
         mostRecentBuild foreach (bs => handleJobState(job, combiCommitStatus.sha, bs))
-        s"Updating ${combiCommitStatus.sha} of #$pr from ${combiCommitStatus.statuses.headOption} to $mostRecentBuild."
+        val msg = s"Updating ${combiCommitStatus.sha} of #$pr from ${combiCommitStatus.statuses.headOption} to $mostRecentBuild."
+        log.debug(msg)
+        msg
+      }) recover { case _: NoSuchElementException => // filtered out
+        val msg = s"No need to synch ${combiCommitStatus.sha} of #$pr. Jenkins in synch with: $githubReport."
+        log.debug(msg)
+        msg
       }
-    }
 
+      syncher onFailure { case e => log.error(s"FAILED synchBuildStatus($combiCommitStatus, $job): $e") } // should never happen with the recover
+      syncher
+    }
 
     private def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
       // We've built this before and we were asked to rebuild. For all jobs that have ended in failure, launch a build.
