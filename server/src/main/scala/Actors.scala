@@ -138,45 +138,64 @@ trait Actors {
       buildCommitsIfNeeded(pull, synchOnly = synchOnly)
     }
 
-    // TODO: is this necessary? in any case, github refuses non-https links, it seems
-    private def commitTargetUrl(url: String) = url.replace("http://", "https://")
+    // TODO: is this necessary? just to be sure, as it looks like github refuses non-https links
+    private def commitTargetUrl(bs: BuildStatus) = bs.url.replace("http://", "https://")
 
     private def commitState(bs: BuildStatus) =
-      if (bs.building) CommitStatus.PENDING
-      else if (bs.isSuccess) CommitStatus.SUCCESS
+      if (bs.building || bs.queued) CommitStatus.PENDING
+      else if (bs.success) CommitStatus.SUCCESS
       else CommitStatus.FAILURE
 
     private def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
+      val advice = if (bs.failed) "Comment PLS REBUILD on PR to retry *spurious* failure." else ""
       CommitStatus(commitState(bs),
-        context     = Some(jobName),
-        description = Some(s"[${bs.number}}] ${bs.result}, ${bs.friendlyDuration}".take(140)),
-        target_url  = Some(commitTargetUrl(bs.url)))
+        context = Some(jobName),
+        description = Some(if (bs.queued) bs.status else s"[${bs.number}] ${bs.status}. ${bs.friendlyDuration} $advice".take(140)),
+        target_url = Some(commitTargetUrl(bs)))
     }
+
+
+    // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
+    // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on PLS REBUILD
+    private def contextIsJenkinsJob(context: String) = context != CommitStatus.COMBINED
 
     private def combiStatus(state: String, msg: String): CommitStatus =
       CommitStatus(state, context = Some(CommitStatus.COMBINED), description = Some(msg.take(140)))
 
 
     private def handleJobState(jobName: String, sha: String, bs: BuildStatus) = {
-      def postFailureComment(bs: BuildStatus) =
-        for {
-          pull    <- githubApi.pullRequest(pr)
-          comment <- githubApi.postCommitComment(sha, PullRequestComment(
-                           s"Job $jobName failed for ${sha.take(8)}, ${bs.friendlyDuration} (ping @${pull.user.login}) [(results)](${bs.url}):\n"+
-                           s"If you suspect the failure was spurious, comment `PLS REBUILD $sha` on PR ${pr} to retry.\n"+
-                            "NOTE: New commits are rebuilt automatically as they appear. A forced rebuild is only necessary for transient failures.\n"+
-                            "`PLS REBUILD` without a sha will force a rebuild for all commits."))
-        } yield comment.body
+      // not called -- see if we can live with less noise
+      def postFailureComment(pull: PullRequest, bs: BuildStatus) =
+        (for {
+          comments <- githubApi.commitComments(sha)
+          header    = s"Job $jobName failed for ${sha.take(8)}, ${bs.friendlyDuration} (ping @${pull.user.login}) [(results)](${bs.url}):\n"
+          if !comments.exists(_.body.startsWith(header))
+          details = s"If you suspect the failure was spurious, comment `PLS REBUILD $sha` on PR ${pr} to retry.\n"+
+                     "NOTE: New commits are rebuilt automatically as they appear. A forced rebuild is only necessary for transient failures.\n"+
+                     "`PLS REBUILD` without a sha will force a rebuild for all commits."
+          comment <- githubApi.postCommitComment(sha, PullRequestComment(header+details))
+        } yield comment.body).recover {
+          case _: NoSuchElementException => s"Avoiding double-commenting on $sha for $jobName"
+        }
 
-      val postStatus = for {
-        posting <- githubApi.postStatus(sha, commitStatus(jobName, bs))
-        _       <- if (bs.building || bs.isSuccess) Future.successful("")
-                   else postFailureComment(bs)
-      } yield posting
+      val newStatus = commitStatus(jobName, bs)
+      val postStatus = (for {
+        currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.context == Some(jobName)).headOption)
+        if currentStatus != Some(newStatus)
+        posting <- githubApi.postStatus(sha, newStatus)
+        _       <- Future.successful(log.debug(s"Posted status on $sha for $jobName $bs:\n$posting"))
+        pull    <- githubApi.pullRequest(pr)
+        _       <- propagateEarlierStati(pull, sha)
+//        if !(bs.queued || bs.building || bs.success)
+//        _       <- postFailureComment(pull, bs)
+      } yield posting).recover {
+        case _: NoSuchElementException => s"No need to update status of $sha for context $jobName"
+      }
 
       postStatus onFailure { case e => log.warning(s"handleJobState($jobName, ${bs.number}, $sha) failed: $e") }
       postStatus
     }
+
 
     private def jobParams(sha: String): Map[String, String] = Map (
       PARAM_PR        -> pr.toString,
