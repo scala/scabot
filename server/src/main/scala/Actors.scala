@@ -205,9 +205,13 @@ trait Actors {
     )
 
     private def launchBuild(sha: String, job: String = config.jenkins.job): Future[String] = {
-      val fut = jenkinsApi.buildJob(job, jobParams(sha))
-      fut onFailure { case e => log.warning(s"launchBuild($sha, $job) failed: $e") }
-      fut
+      val launcher = for {
+        buildRes <- jenkinsApi.buildJob(job, jobParams(sha))
+        _        <- Future.successful(log.debug(s"Launched $job for $sha: $buildRes"))
+      } yield buildRes
+
+      launcher onFailure { case e => log.warning(s"FAILED launchBuild($sha, $job): $e") }
+      launcher
     }
 
     private def synchBuildStatus(combiCommitStatus: CombiCommitStatus, job: String): Future[String] = {
