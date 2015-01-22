@@ -111,12 +111,16 @@ trait Actors {
         log.info(s"Comment by $user:\n$body")
         handleComment(comment)
 
+      // TODO: on CommitStatusEvent, propagateEarlierStati(pull)
+
       case js@JobState(name, _, BuildState(number, phase, parameters, _, _, full_url, consoleLog)) =>
-        log.info(s"Job $name [$number]: $phase") // result is not passed in correctly?
         for { // fetch the state from jenkins -- the webhook doesn't pass in result correctly (???)
           bs <- jenkinsApi.buildStatus(name, number)
+          _  <- Future.successful(log.debug(s"Build status for $name: $bs"))
         } yield {
-          handleJobState(name, parameters(PARAM_REPO_REF), bs)
+          val sha = parameters(PARAM_REPO_REF)
+          log.info(s"Job state for $name [$number] @${sha.take(6)}: ${bs.status} at ${bs.url}") // result is not passed in correctly?
+          handleJobState(name, sha, bs)
         }
 
       case PullRequestComment(body, user, commitId, path, pos, created, update, id) =>
