@@ -242,19 +242,28 @@ trait Actors {
       syncher
     }
 
+    // result is a subset of (config.jenkins.job and the contexts found in combiCommitStatus.statuses that are jenkins jobs)
+    // if not rebuilding or gathering all jobs, this subset is either empty or the main job (if no statuses were found for it)
+    // unless gatherAllJobs, the result only includes jobs whose most recent status was a failure
     private def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
+      val mainJob     = config.jenkins.job
+      val statusByJob = Map(mainJob -> Nil) ++: combiCommitStatus.statuses.groupBy(_.context).collect { case (Some(job), stati) if contextIsJenkinsJob(job) => (job, stati) }
+
+      def shouldBuild(stati: List[CommitStatus]): Boolean = gatherAllJobs || stati.headOption.forall(_.failure)
+
       // We've built this before and we were asked to rebuild. For all jobs that have ended in failure, launch a build.
-      if (combiCommitStatus.total_count > 0 && (rebuild || gatherAllJobs)) {
-        combiCommitStatus.statuses.groupBy(_.context).collect {
-          case (Some(job), stati)
-            if job != CommitStatus.COMBINED &&
-               // most recent status was a failure (or, weirdly, there were no statuses -- that would be a github bug)
-               (stati.headOption.forall(_.failure) || gatherAllJobs) => job
-        }.toList
-      } else {
-        if (combiCommitStatus.total_count == 0 || gatherAllJobs) List(config.jenkins.job) // first time
-        else Nil // rebuild wasn't requested, and results were there: we're done
-      }
+      val jobs =
+        if (rebuild || gatherAllJobs) statusByJob.collect { case (job, stati) if shouldBuild(stati) => job }.toList
+        else if (statusByJob(mainJob).isEmpty) List(mainJob)
+        else Nil
+
+      val jobMsg =
+        if (jobs.isEmpty) "No need to build"
+        else s"Found jobs ${jobs.mkString(", ")} TODO"
+
+      log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, all=$gatherAllJobs), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.context)}")
+
+      jobs
     }
 
     // for all commits with pending status, or without status entirely, ensure that a jenkins job has been started
