@@ -292,22 +292,30 @@ trait Actors {
 
     // propagate status of commits before the last one over to the last commit's status,
     // so that all statuses are (indirectly) considered by github when coloring the merge button green/red
-    private def propagateEarlierStati(pull: PullRequest) = {
+    private def propagateEarlierStati(pull: PullRequest, causeSha: String = ""): Future[List[CommitStatus]] = {
       import CommitStatus._
-      for {
+      (for {
         commits       <- githubApi.pullRequestCommits(pr)
+        if commits.nonEmpty && causeSha != commits.last.sha // ignore if caused by an update to the last commit
         earlierStati  <- Future.sequence(commits.init.map(c => githubApi.commitStatus(c.sha)))
         failingCommits = earlierStati.filterNot(_.success) // pending/failure
-        posting       <- githubApi.postStatus(commits.last.sha,
-          if (failingCommits.isEmpty) {
+        posting       <- Future.sequence{
+          if (earlierStati.isEmpty) Nil
+          else if (failingCommits.isEmpty) {
             // override any prior status in the COMBINED context
             // the last commit's status doesn't matter -- it'll be considered directly by github
-            combiStatus(SUCCESS, "All previous commits successful.")
+            List(githubApi.postStatus(commits.last.sha, combiStatus(SUCCESS, "All previous commits successful.")))
           } else {
             val worstState = if (failingCommits.exists(_.failure)) FAILURE else PENDING
-            combiStatus(worstState, s"Found earlier commit(s) marked $worstState: ${failingCommits.map(_.sha.take(6)).mkString(", ")}")
-          })
-      } yield posting
+            val updateObsoleteCombinedStati: List[Future[CommitStatus]] = earlierStati.filter(_.statuses.exists(st => st.combined && !st.success)).map { st =>
+              githubApi.postStatus(st.sha, combiStatus(SUCCESS, "Nothing to see here -- no longer last commit."))
+            }
+            val lastDesc = s"Found earlier commit(s) marked $worstState: ${failingCommits.map(_.sha.take(6)).mkString(", ")}"
+            val updateLast: Future[CommitStatus] = githubApi.postStatus(commits.last.sha, combiStatus(worstState, lastDesc))
+            updateLast :: updateObsoleteCombinedStati
+          }
+        }
+      } yield posting).recover { case _: NoSuchElementException => Nil }
     }
 
 
