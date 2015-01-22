@@ -32,40 +32,45 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     override def toString = "Parameters(%s)" format (parameters mkString ", ")
   }
 
-  implicit class BuildStatusOps(_bs: BuildStatus) {
-    def isSuccess = !_bs.building && _bs.result == "SUCCESS"
-
-    def paramsMatch(expectedArgs: Map[String, String]): Boolean =
-      _bs.actions.flatMap(_.parameters).flatten.collect {
-        case Param(n, Some(v)) if expectedArgs.isDefinedAt(n) => (n, v)
-      }.toMap == expectedArgs
-  }
-
   case class BuildStatus(number: Int,
                          result: String,
                          building: Boolean,
                          duration: Long,
-                         actions: List[Action],
+                         actions: Option[List[Action]],
                          url: String) {
     assert(!(building && queued), "Cannot both be building and queued.")
 
     def friendlyDuration = Try {
       val seconds = duration.toInt / 1000
-      "Took "+ (if (seconds <= 90) s"$seconds s." else s"${seconds / 60} min.")
+      if (seconds == 0) ""
+      else "Took "+ (if (seconds <= 90) s"$seconds s." else s"${seconds / 60} min.")
     } getOrElse ""
 
     def queued = false
+    def success = result == "SUCCESS"
+    def failed = !(queued || building || success)
 
-    override def toString = s"Build $number: ${if (building) "BUILDING" else result} $friendlyDuration ($url)."
+    def status = if (queued) "Queued" else if (building) "Building" else result
+    def parameters = (for {
+      actions           <- actions.toList
+      action            <- actions
+      parameters        <- action.parameters.toList
+      Param(n, Some(v)) <- parameters
+    } yield (n, v)).toMap
+
+    def paramsMatch(expectedArgs: Map[String, String]): Boolean =
+      parameters.filterKeys(expectedArgs.isDefinedAt) == expectedArgs
+
+    override def toString = s"Build $number: $status $friendlyDuration ($url)."
   }
 
   case class Queue(items: List[QueueItem])
 
-  case class QueueItem(actions: List[Action], task: Task, id: Int) {
+  case class QueueItem(actions: Option[List[Action]], task: Task, id: Int) {
     def jobName = task.name
 
     // the url is fake but needs to be unique
-    def toStatus = new BuildStatus(0, s"Queued build for ${task.name } id: ${id}", false, -1, actions, task.url + "/queued/" + id) {
+    def toStatus = new BuildStatus(0, s"Queued build for ${task.name} id: ${id}", false, -1, actions, task.url + "#queued-" + id) {
       override def queued = true
     }
   }

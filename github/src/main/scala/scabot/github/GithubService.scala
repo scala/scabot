@@ -61,7 +61,7 @@ trait GithubService extends core.Core with GithubApi with Directives { self: cor
           // case "public"                   =>
           // case "repository"               =>
           // case "release"                  =>
-          // case "status"                   =>
+          // case "status"                   => TODO: use this to propagate combined contexts -- problem: the (payload)[https://developer.github.com/v3/activity/events/types/#statusevent] does not specify the PR
           // case "team_add"                 =>
           // case "watch"                    =>
           case "issue_comment"               => handleWith(issueCommentEvent)
