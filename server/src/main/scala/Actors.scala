@@ -266,8 +266,7 @@ trait Actors {
       jobs
     }
 
-    // for all commits with pending status, or without status entirely, ensure that a jenkins job has been started
-    // if `forceRebuild` is specified, jobs before it will be ignored (by job number)
+    // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
     private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[List[String]]] = {
       def fetchCommitStatus(sha: String) = {
         val fetcher = githubApi.commitStatus(sha)
@@ -281,10 +280,10 @@ trait Actors {
           log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
-            todo      = jobsTodo(combiCs, rebuild = forceRebuild, gatherAllJobs = synchOnly)
-            synchRes <- Future.sequence(todo.map(synchBuildStatus(combiCs, _)))
-            buildTodo = if (synchOnly) Nil else todo
-            buildRes <- Future.sequence(buildTodo.map(launchBuild(combiCs.sha, _))) // using combiCs.sha for consistency with jobsTodo
+            jobs      = jobsTodo(combiCs, rebuild = forceRebuild, gatherAllJobs = synchOnly)
+            buildRes <- Future.sequence(
+              if (synchOnly) jobs.map(synchBuildStatus(combiCs, _))
+              else jobs.map(launchBuild(combiCs.sha, _)))
           } yield buildRes
         })
       } yield results
