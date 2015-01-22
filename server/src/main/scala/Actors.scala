@@ -129,12 +129,13 @@ trait Actors {
 
     }
 
-    private def handlePR(action: String, pull: PullRequest) = {
+    private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
       checkMilestone(pull)
       checkLGTM(pull)
       propagateEarlierStati(pull)
-      buildCommitsIfNeeded(pull)
-      execCommands(pull)
+      // don't exec commands when synching, or we'll keep executing the PLS SYNCH that triggered this handlePR execution
+      if (!synchOnly) execCommands(pull)
+      buildCommitsIfNeeded(pull, synchOnly = synchOnly)
     }
 
     // TODO: is this necessary? in any case, github refuses non-https links, it seems
@@ -295,8 +296,8 @@ trait Actors {
     }
 
 
-    private def handleComment(comment: IssueComment): Future[Unit] = {
-      implicit val replyWithMemento: String => Unit = msg => githubApi.postIssueComment(pr, IssueComment(mementoFor(comment) + ")\n" + msg))
+    private def handleComment(comment: IssueComment): Future[Any] = {
+      implicit val replyWithMemento: String => Future[IssueComment] = msg => githubApi.postIssueComment(pr, IssueComment(mementoFor(comment) + ")\n" + msg))
       comment.body match {
         case REBUILD_SHA(sha) => commandRebuildSha(sha)
         case REBUILD_ALL()    => commandRebuildAll()
@@ -306,28 +307,27 @@ trait Actors {
     }
 
     private final val REBUILD_SHA = """^PLS REBUILD (\w+)""".r.unanchored
-    def commandRebuildSha(sha: String)(implicit reply: String => Unit) =
-      for (res <- launchBuild(sha)) yield {
-        reply(s":cat: Roger! Rebuilding ${sha take 6}. :rotating_light:\n$res")
-      }
+    def commandRebuildSha(sha: String)(implicit reply: String => Future[IssueComment]) =
+      for {
+        res <- launchBuild(sha)
+        _   <- reply(s":cat: Roger! Rebuilding ${sha take 6}. :rotating_light:\n$res")
+      } yield res
 
     private final val REBUILD_ALL = """^PLS REBUILD""".r.unanchored
-    def commandRebuildAll()(implicit reply: String => Unit) =
+    def commandRebuildAll()(implicit reply: String => Future[IssueComment]) =
       for {
+        _        <- reply(s":cat: Roger! Rebuilding all the commits! :rotating_light:\n")
         pull     <- githubApi.pullRequest(pr)
         buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
-      } yield {
-        reply(s":cat: Roger! Rebuilding all the commits! :rotating_light:\n")
-      }
+      } yield buildRes
 
     private final val SYNCH = """^PLS SYNCH""".r.unanchored
-    def commandSynch()(implicit reply: String => Unit) =
+    def commandSynch()(implicit reply: String => Future[IssueComment]) =
       for {
+        _        <- reply(":cat: Synchronaising! :pray:")
         pull     <- githubApi.pullRequest(pr)
-        buildRes <- buildCommitsIfNeeded(pull, forceRebuild = false, synchOnly = true)
-      } yield {
-        reply(":cat: Synchronaising! :pray:")
-      }
+        synchRes <- handlePR("synchronize", pull, synchOnly = true)
+      } yield synchRes
 
     final private val IGNORE_NOTE_TO_SELF = "(kitty-note-to-self: ignore "
 
