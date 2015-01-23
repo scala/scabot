@@ -58,6 +58,8 @@ trait Actors {
     // supports messages of type ProjectMessage
     override def receive: Receive = {
       case Synch =>
+        log.info("Synching up! Bleepy-dee-bloop.")
+
         githubApi.pullRequests.foreach { prs =>
           prs.foreach { pr => prActor(pr.number) ! PullRequestEvent("synchronize", pr.number, pr)}
         }
