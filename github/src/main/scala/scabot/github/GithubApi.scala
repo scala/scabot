@@ -35,7 +35,6 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
   }
   case class Milestone(number: Int, state: String, title: String, description: String, creator: User,
                        created_at: Date, updated_at: Date, closed_at: Date, due_on: Option[Date]) {
-    // adding methods to case classes confuses spray-json
     def mergeBranch = description match {
       case Milestone.MergeBranch(branch) => Some(branch)
       case _                             => None
@@ -151,7 +150,7 @@ trait GithubApiActions extends GithubJsonProtocol { self: core.Core with core.Co
     def labels(nb: Int)                            = p[List[Label]]       (Get(api("issues" / nb / "labels")))
 
     // most recent status comes first in the resulting list!
-    def commitStatus(sha: String)                            = p[CombiCommitStatus]  (Get(api("commits" / sha / "status")))
+    def commitStatus(sha: String)                            = p[CombiCommitStatus]       (Get(api("commits" / sha / "status")))
     def postStatus(sha: String, status: CommitStatus)        = p[CommitStatus]           (Post(api("statuses" / sha), status))
 
     def allLabels                                            = p[List[Label]]             (Get(api("labels")))

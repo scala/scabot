@@ -52,7 +52,13 @@ trait Actors { self: core.Core with core.Configuration with github.GithubApi wit
     import context._
 
     // find or create actor responsible for PR #`nb`
-    def prActor(nb: Int) = child(nb.toString).getOrElse(actorOf(Props(new PullRequestActor(nb, config)), nb.toString))
+    def prActor(nb: Int) = child(nb.toString).getOrElse(mkPRActor(nb))
+
+    // ignore PRs owned by the kitteh
+    def mkPRActor(nb: Int): ActorRef =
+      if (config.github.user != "scala" || nb > 4265) actorOf(Props(new PullRequestActor(nb, config)), nb.toString)
+      else actorOf(Props(new NoopPullRequestActor), nb.toString)
+
 
     // supports messages of type ProjectMessage
     override def receive: Receive = {
@@ -83,6 +89,10 @@ trait Actors { self: core.Core with core.Configuration with github.GithubApi wit
     }
   }
 
+  // for migration
+  class NoopPullRequestActor extends Actor with ActorLogging {
+    override def receive: Actor.Receive = { case _ => log.warning("NOOP ACTOR SAYS HELLO") }
+  }
 
   class PullRequestActor(pr: Int, config: Config) extends Actor with ActorLogging {
     lazy val githubApi  = new GithubConnection(config.github)
