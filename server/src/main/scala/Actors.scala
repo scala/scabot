@@ -4,6 +4,8 @@ package server
 import java.util.NoSuchElementException
 
 import akka.actor._
+import com.amazonaws.services.dynamodbv2.document.{Item, PrimaryKey}
+import com.amazonaws.services.dynamodbv2.model.KeyType
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
@@ -12,7 +14,7 @@ import scala.util.Try
 /**
  * Created by adriaan on 1/15/15.
  */
-trait Actors { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi =>
+trait Actors extends DynamoDb { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi =>
   implicit lazy val system: ActorSystem = ActorSystem("scabot")
 
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
@@ -119,7 +121,7 @@ trait Actors { self: core.Core with core.Configuration with github.GithubApi wit
         context.stop(self)
 
       case comment@IssueComment(body, user, created_at, updated_at, id) =>
-        log.info(s"Comment by $user:\n$body")
+        log.info(s"Comment by ${user.getOrElse("???")}:\n$body")
         handleComment(comment)
 
       // TODO: on CommitStatusEvent, propagateEarlierStati(pull)
@@ -144,7 +146,7 @@ trait Actors { self: core.Core with core.Configuration with github.GithubApi wit
       checkMilestone(pull)
       checkLGTM(pull)
       propagateEarlierStati(pull)
-      // don't exec commands when synching, or we'll keep executing the PLS SYNCH that triggered this handlePR execution
+      // don't exec commands when synching, or we'll keep executing the /sync that triggered this handlePR execution
       if (!synchOnly) execCommands(pull)
       buildCommitsIfNeeded(pull, synchOnly = synchOnly)
     }
@@ -158,7 +160,7 @@ trait Actors { self: core.Core with core.Configuration with github.GithubApi wit
       else CommitStatusConstants.FAILURE
 
     private def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
-      val advice = if (bs.failed) "Comment PLS REBUILD on PR to retry *spurious* failure." else ""
+      val advice = if (bs.failed) "Say /rebuild on PR to retry *spurious* failure." else ""
       CommitStatus(commitState(bs),
         context = Some(jobName),
         description = Some(if (bs.queued) bs.status else s"[${bs.number}] ${bs.status}. ${bs.friendlyDuration} $advice".take(140)),
@@ -167,7 +169,7 @@ trait Actors { self: core.Core with core.Configuration with github.GithubApi wit
 
 
     // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
-    // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on PLS REBUILD
+    // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
     private def contextIsJenkinsJob(context: String) = context != CommitStatusConstants.COMBINED
 
     private def combiStatus(state: String, msg: String): CommitStatus =
@@ -181,9 +183,9 @@ trait Actors { self: core.Core with core.Configuration with github.GithubApi wit
           comments <- githubApi.commitComments(sha)
           header    = s"Job $jobName failed for ${sha.take(8)}, ${bs.friendlyDuration} (ping @${pull.user.login}) [(results)](${bs.url}):\n"
           if !comments.exists(_.body.startsWith(header))
-          details = s"If you suspect the failure was spurious, comment `PLS REBUILD $sha` on PR ${pr} to retry.\n"+
+          details = s"If you suspect the failure was spurious, comment `/rebuild $sha` on PR ${pr} to retry.\n"+
                      "NOTE: New commits are rebuilt automatically as they appear. A forced rebuild is only necessary for transient failures.\n"+
-                     "`PLS REBUILD` without a sha will force a rebuild for all commits."
+                     "`/rebuild` without a sha will force a rebuild for all commits."
           comment <- githubApi.postCommitComment(sha, PullRequestComment(header+details))
         } yield comment.body).recover {
           case _: NoSuchElementException => s"Avoiding double-commenting on $sha for $jobName"
@@ -358,53 +360,72 @@ trait Actors { self: core.Core with core.Configuration with github.GithubApi wit
     }
 
 
-    private def handleComment(comment: IssueComment): Future[Any] = {
-      implicit val replyWithMemento: String => Future[IssueComment] = msg => githubApi.postIssueComment(pr, IssueComment(mementoFor(comment) + ")\n" + msg))
-      comment.body match {
-        case REBUILD_SHA(sha) => commandRebuildSha(sha)
-        case REBUILD_ALL()    => commandRebuildAll()
-        case SYNCH()          => commandSynch()
-        case _                => Future {log.debug(s"Unhandled comment: $comment")}
-      }
+    
+    private def execCommands(pullRequest: PullRequest) = for {
+      comments       <- githubApi.issueComments(pr)
+      commentResults <- Future.sequence(comments.map(handleComment))
+    } yield commentResults
+
+    private lazy val seenCommandsTable = {
+      val ddc    = new DynoDbClient
+      val _table = new ddc.DynoDbTable("scabot-seen-commands")
+      if (!_table.exists) _table.create(List(("Id", KeyType.HASH)), List(("Id", "N")))
+      _table
     }
 
-    private final val REBUILD_SHA = """^PLS REBUILD (\w+)""".r.unanchored
-    def commandRebuildSha(sha: String)(implicit reply: String => Future[IssueComment]) =
-      for {
-        res <- launchBuild(sha)
-        _   <- reply(s":cat: Roger! Rebuilding ${sha take 6}. :rotating_light:\n$res")
-      } yield res
+    private def seenCommentId(id: Long): Future[Boolean] =
+      seenCommandsTable.get(new PrimaryKey("Id", id)).map(_.nonEmpty)
 
-    private final val REBUILD_ALL = """^PLS REBUILD""".r.unanchored
-    def commandRebuildAll()(implicit reply: String => Future[IssueComment]) =
+    private def sawCommentId(id: Long): Future[String] =
+      seenCommandsTable.put((new Item).withPrimaryKey("Id", id)).map(_.getPutItemResult.toString)
+
+    private def hasCommand(body: String) = body.startsWith("/")
+
+    private def handleComment(comment: IssueComment): Future[Any] =
+     if (!hasCommand(comment.body)) {
+       log.debug(s"No command in $comment")
+       Future.successful("No Command found")
+     } else {
+       (for {
+         id   <- Future { comment.id.get } // the get will fail the future if somehow id is empty
+         seen <- seenCommentId(id)
+         if !seen
+         _    <- sawCommentId(id)
+         res  <- {
+           log.debug(s"Executing command for ${comment.body}")
+           comment.body match {
+             case REBUILD_SHA(sha) => commandRebuildSha(sha)
+             case REBUILD_ALL()    => commandRebuildAll()
+             case SYNCH()          => commandSynch()
+           }
+         }
+       } yield res).recover {
+         case _: NoSuchElementException =>
+           val msg = s"Already handled $comment"
+           log.debug(msg)
+           msg
+         case _: MatchError =>
+           val msg = s"Unknown command in $comment"
+           log.debug(msg)
+           msg
+       }
+     }
+
+    private final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
+    def commandRebuildSha(sha: String) = launchBuild(sha)
+
+    private final val REBUILD_ALL = """^/rebuild""".r.unanchored
+    def commandRebuildAll() =
       for {
-        _        <- reply(s":cat: Roger! Rebuilding all the commits! :rotating_light:\n")
         pull     <- githubApi.pullRequest(pr)
         buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
       } yield buildRes
 
-    private final val SYNCH = """^PLS SYNCH""".r.unanchored
-    def commandSynch()(implicit reply: String => Future[IssueComment]) =
+    private final val SYNCH = """^/sync""".r.unanchored
+    def commandSynch() =
       for {
-        _        <- reply(":cat: Synchronaising! :pray:")
         pull     <- githubApi.pullRequest(pr)
         synchRes <- handlePR("synchronize", pull, synchOnly = true)
       } yield synchRes
-
-    final private val IGNORE_NOTE_TO_SELF = "(kitty-note-to-self: ignore "
-
-    private def hasCommand(body: String) = body.startsWith("PLS ")
-
-    // must add a comment that starts with the first element of each returned pair
-    private def unprocessedCommands(comments: List[IssueComment]): List[IssueComment] =
-      comments filter { c => hasCommand(c.body) && !comments.exists(_.body.startsWith(mementoFor(c))) }
-
-    private def mementoFor(c: IssueComment): String =
-      IGNORE_NOTE_TO_SELF + c.id.getOrElse("???")
-
-    def execCommands(pullRequest: PullRequest) = for {
-      comments       <- githubApi.issueComments(pr)
-      commentResults <- Future.sequence(unprocessedCommands(comments).map(handleComment))
-    } yield commentResults
   }
 }
