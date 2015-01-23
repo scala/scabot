@@ -8,6 +8,16 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
   // spray json seems to disregard the expected type and won't unmarshall a json number as a String (sometimes github uses longs, sometimes string reps)
   type Date = Option[Either[String, Long]]
 
+  object CommitStatusConstants {
+    final val SUCCESS = "success"
+    final val PENDING = "pending"
+    final val FAILURE = "failure"
+
+    // context to enforce that last commit is green only if all priort commits are also green
+    final val COMBINED = "combined"
+  }
+  import CommitStatusConstants._
+
   case class User(login: String)
   case class Author(name: String, email: String)  // , username: Option[String]
   case class Repository(name: String, full_name: String, git_url: String,
@@ -22,14 +32,16 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
 
   object Milestone {
     private val MergeBranch = """Merge to (\S+)\b""".r.unanchored
-    // adding methods to case classes confuses spray-json
-    def mergeBranch(ms: Milestone) = ms.description match {
-      case MergeBranch(branch) => Some(branch)
-      case _ => None
-    }
   }
   case class Milestone(number: Int, state: String, title: String, description: String, creator: User,
-                       created_at: Date, updated_at: Date, closed_at: Date, due_on: Option[Date])
+                       created_at: Date, updated_at: Date, closed_at: Date, due_on: Option[Date]) {
+    // adding methods to case classes confuses spray-json
+    def mergeBranch = description match {
+      case Milestone.MergeBranch(branch) => Some(branch)
+      case _                             => None
+    }
+  }
+
   case class Issue(number: Int, state: String, title: String, body: String, user: User, labels: List[Label],
                    assignee: Option[User], milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date)
 
@@ -37,33 +49,24 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
     // added: Option[List[String]], removed: Option[List[String]], modified: Option[List[String]]
   case class Commit(sha: String, commit: CommitInfo, url: Option[String] = None)
 
-  implicit  class CombiCommitStatusOps(_cs: CombiCommitStatus) {
-    import CommitStatus._
+  trait HasState {
+    def state: String
 
-    def success  = _cs.state == SUCCESS
-    def pending  = _cs.state == PENDING
-    def failure  = _cs.state == FAILURE
+    def success  = state == SUCCESS
+    def pending  = state == PENDING
+    def failure  = state == FAILURE
   }
-  case class CombiCommitStatus(state: String, sha: String, statuses: List[CommitStatus], total_count: Int)
 
-  implicit  class CommitStatusOps(_cs: CommitStatus) {
-    import CommitStatus._
+  case class CombiCommitStatus(state: String, sha: String, statuses: List[CommitStatus], total_count: Int) extends HasState
 
-    def combined = _cs.context == Some(COMBINED)
-    def success  = _cs.state == SUCCESS
-    def pending  = _cs.state == PENDING
-    def failure  = _cs.state == FAILURE
+  trait HasContext {
+    def context: Option[String]
+
+    def combined = context == Some(COMBINED)
   }
-  object CommitStatus {
-    final val SUCCESS = "success"
-    final val PENDING = "pending"
-    final val FAILURE = "failure"
 
-    // context to enforce that last commit is green only if all priort commits are also green
-    final val COMBINED = "combined"
-  }
   // TODO: factory method that caps state to 140 chars
-  case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None)
+  case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None) extends HasState with HasContext
 
   case class IssueComment(body: String, user: Option[User] = None, created_at: Date = None, updated_at: Date = None, id: Option[Long] = None) extends PRMessage
   case class PullRequestComment(body: String, user: Option[User] = None, commit_id: Option[String] = None, path: Option[String] = None, position: Option[Int] = None,

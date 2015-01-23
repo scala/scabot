@@ -12,8 +12,7 @@ import scala.util.Try
 /**
  * Created by adriaan on 1/15/15.
  */
-trait Actors {
-  self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi =>
+trait Actors { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi =>
   implicit lazy val system: ActorSystem = ActorSystem("scabot")
 
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
@@ -144,9 +143,9 @@ trait Actors {
     private def commitTargetUrl(bs: BuildStatus) = bs.url.replace("http://", "https://")
 
     private def commitState(bs: BuildStatus) =
-      if (bs.building || bs.queued) CommitStatus.PENDING
-      else if (bs.success) CommitStatus.SUCCESS
-      else CommitStatus.FAILURE
+      if (bs.building || bs.queued) CommitStatusConstants.PENDING
+      else if (bs.success) CommitStatusConstants.SUCCESS
+      else CommitStatusConstants.FAILURE
 
     private def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
       val advice = if (bs.failed) "Comment PLS REBUILD on PR to retry *spurious* failure." else ""
@@ -159,10 +158,10 @@ trait Actors {
 
     // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
     // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on PLS REBUILD
-    private def contextIsJenkinsJob(context: String) = context != CommitStatus.COMBINED
+    private def contextIsJenkinsJob(context: String) = context != CommitStatusConstants.COMBINED
 
     private def combiStatus(state: String, msg: String): CommitStatus =
-      CommitStatus(state, context = Some(CommitStatus.COMBINED), description = Some(msg.take(140)))
+      CommitStatus(state, context = Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
 
 
     private def handleJobState(jobName: String, sha: String, bs: BuildStatus) = {
@@ -295,7 +294,7 @@ trait Actors {
     // propagate status of commits before the last one over to the last commit's status,
     // so that all statuses are (indirectly) considered by github when coloring the merge button green/red
     private def propagateEarlierStati(pull: PullRequest, causeSha: String = ""): Future[List[CommitStatus]] = {
-      import CommitStatus._
+      import CommitStatusConstants._
       (for {
         commits       <- githubApi.pullRequestCommits(pr)
         if commits.nonEmpty && causeSha != commits.last.sha // ignore if caused by an update to the last commit
@@ -323,7 +322,7 @@ trait Actors {
 
     def milestoneForBranch(branch: String): Future[Milestone] = for {
       mss <- githubApi.repoMilestones()
-    } yield mss.find(ms => Milestone.mergeBranch(ms) == branch).get
+    } yield mss.find(_.mergeBranch == branch).get
 
 
     // if there's a milestone with description "Merge to ${pull.base.ref}.", set it as the PR's milestone
