@@ -8,16 +8,15 @@ scalaVersion in ThisBuild := "2.11.5"
 
 // common dependencies
 libraryDependencies in ThisBuild ++= Seq(
-  "com.typesafe.akka" %% "akka-actor"                        % "2.3.8",
-  "com.typesafe.akka" %% "akka-kernel"                       % "2.3.8",
-//  "com.typesafe.akka" %% "akka-http-spray-json-experimental" % "1.0-M2",
-//  "com.typesafe.akka" %% "akka-http-experimental"            % "1.0-M2",
-  "io.spray"          %%  "spray-can"             % "1.3.2",
-  "io.spray"          %%  "spray-client"          % "1.3.2",
-  "io.spray"          %%  "spray-routing"         % "1.3.2",
-  "io.spray"          %%  "spray-http"         % "1.3.2",
-  "io.spray"          %%  "spray-httpx"         % "1.3.2",
-  "io.spray"          %%  "spray-json"          % "1.3.1"
+  "com.typesafe.akka" %% "akka-actor"      % "2.3.8",
+  "com.typesafe.akka" %% "akka-kernel"     % "2.3.8",
+  "io.spray"          %% "spray-can"      % "1.3.2",
+  "io.spray"          %% "spray-client"   % "1.3.2",
+  "io.spray"          %% "spray-routing"  % "1.3.2",
+  "io.spray"          %% "spray-http"     % "1.3.2",
+  "io.spray"          %% "spray-httpx"    % "1.3.2",
+  "io.spray"          %% "spray-json"     % "1.3.1",
+  "com.amazonaws"      % "aws-java-sdk"   % "1.9.13" // TODO split out
 )
 
 // TODO: why do we need to define this explicitly
