@@ -5,7 +5,7 @@ import com.typesafe.config.{Config => TConfig, _}
 trait Configuration { self: Core =>
   // TODO make file location configurable
   // TODO generate config using chef
-  lazy val configs: Map[String, Config] = parseConfig(new java.io.File("scabot.conf"))
+  lazy val configs: Map[String, Config] = parseConfig(new java.io.File(sys.props("scabot.config.file")))
 
   object Config {
     case class Github(user: String, repo: String, host: String, token: String)
