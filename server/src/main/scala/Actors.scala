@@ -307,27 +307,38 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     // so that all statuses are (indirectly) considered by github when coloring the merge button green/red
     private def propagateEarlierStati(pull: PullRequest, causeSha: String = ""): Future[List[CommitStatus]] = {
       import CommitStatusConstants._
+
+      def postLast(state: String, desc: String, lastStss: List[CommitStatus], lastSha: String) =
+        for { _ <- Future.successful()
+          if ! lastStss.exists(st => st.state == state && st.description == Some(desc))
+          res <- githubApi.postStatus(lastSha, combiStatus(state, desc)) } yield res
+
+      def outdated(earlier: List[CombiCommitStatus]) = earlier.filter(_.statuses.exists(st => st.combined && !st.success))
+      def nothingToSee(st: CombiCommitStatus) = githubApi.postStatus(st.sha, combiStatus(SUCCESS, "Nothing to see here -- no longer last commit."))
+
+      def combine(earlierStati: List[CombiCommitStatus], lastSha: String, lastStss: List[CommitStatus]) = {
+        val failingCommits = earlierStati.filterNot(_.success)
+        val worst = if (failingCommits.exists(_.failure)) FAILURE else if (failingCommits.isEmpty) SUCCESS else PENDING
+
+        if (worst == SUCCESS) postLast(worst, "All previous commits successful.", lastStss, lastSha).map(List(_))
+        else for {
+          last <- postLast(worst, s"Found earlier commit(s) marked $worst: ${failingCommits.map(_.sha.take(6)).mkString(", ")}", lastStss, lastSha)
+          earlier <- Future.sequence(outdated(earlierStati) map nothingToSee) // we know this status is not there
+        } yield last :: earlier
+      }
+
       (for {
         commits       <- githubApi.pullRequestCommits(pr)
-        if commits.nonEmpty && causeSha != commits.last.sha // ignore if caused by an update to the last commit
+
+        lastSha = commits.lastOption.map(_.sha).getOrElse("")
+        if commits.nonEmpty && commits.tail.nonEmpty && causeSha != lastSha // ignore if caused by an update to the last commit
+
         earlierStati  <- Future.sequence(commits.init.map(c => githubApi.commitStatus(c.sha)))
-        failingCommits = earlierStati.filterNot(_.success) // pending/failure
-        posting       <- Future.sequence{
-          if (earlierStati.isEmpty) Nil
-          else if (failingCommits.isEmpty) {
-            // override any prior status in the COMBINED context
-            // the last commit's status doesn't matter -- it'll be considered directly by github
-            List(githubApi.postStatus(commits.last.sha, combiStatus(SUCCESS, "All previous commits successful.")))
-          } else {
-            val worstState = if (failingCommits.exists(_.failure)) FAILURE else PENDING
-            val updateObsoleteCombinedStati: List[Future[CommitStatus]] = earlierStati.filter(_.statuses.exists(st => st.combined && !st.success)).map { st =>
-              githubApi.postStatus(st.sha, combiStatus(SUCCESS, "Nothing to see here -- no longer last commit."))
-            }
-            val lastDesc = s"Found earlier commit(s) marked $worstState: ${failingCommits.map(_.sha.take(6)).mkString(", ")}"
-            val updateLast: Future[CommitStatus] = githubApi.postStatus(commits.last.sha, combiStatus(worstState, lastDesc))
-            updateLast :: updateObsoleteCombinedStati
-          }
-        }
+
+        lastStss      <- githubApi.commitStatus(lastSha).map(_.statuses)
+
+        posting       <- combine(earlierStati, lastSha, lastStss)
+
       } yield posting).recover { case _: NoSuchElementException => Nil }
     }
 
