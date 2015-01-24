@@ -309,7 +309,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     private def propagateEarlierStati(pull: PullRequest, causeSha: String = ""): Future[List[CommitStatus]] = {
       import CommitStatusConstants._
 
-      def postLast(state: String, desc: String, lastStss: List[CommitStatus], lastSha: String) =
+      def postLast(lastSha: String, desc: String, state: String, lastStss: List[CommitStatus]) =
         for { _ <- Future.successful()
           if ! lastStss.exists(st => st.state == state && st.description == Some(desc))
           res <- githubApi.postStatus(lastSha, combiStatus(state, desc)) } yield res
@@ -321,9 +321,9 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         val failingCommits = earlierStati.filterNot(_.success)
         val worst = if (failingCommits.exists(_.failure)) FAILURE else if (failingCommits.isEmpty) SUCCESS else PENDING
 
-        if (worst == SUCCESS) postLast(worst, "All previous commits successful.", lastStss, lastSha).map(List(_))
+        if (worst == SUCCESS) postLast(lastSha, "All previous commits successful.", worst, lastStss).map(List(_))
         else for {
-          last <- postLast(worst, s"Found earlier commit(s) marked $worst: ${failingCommits.map(_.sha.take(6)).mkString(", ")}", lastStss, lastSha)
+          last <- postLast(lastSha, s"Found earlier commit(s) marked $worst: ${failingCommits.map(_.sha.take(6)).mkString(", ")}", worst, lastStss)
           earlier <- Future.sequence(outdated(earlierStati) map nothingToSee) // we know this status is not there
         } yield last :: earlier
       }
