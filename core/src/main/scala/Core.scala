@@ -11,9 +11,9 @@ import spray.httpx.unmarshalling._
 import spray.routing.Route
 import spray.routing.Directives.reject
 
-import scala.concurrent.{Future, ExecutionContext}
+import scala.concurrent.{Promise, Future, ExecutionContext}
 
-trait Core {
+trait Core extends Util {
   implicit def system: ActorSystem
 
   // needed for marshalling implicits for the json api
@@ -38,6 +38,27 @@ trait Core {
   trait JobContextLense {
     def contextForJob(job: String): Option[String]
     def jobForContext(context: String): Option[String]
+  }
+}
+
+trait Util { self: Core =>
+  def findFirstSequentially[T](futures: Stream[Future[T]])(p: T => Boolean): Future[T] = {
+    val resultPromise = Promise[T]
+    def loop(futures: Stream[Future[T]]): Unit =
+      futures.headOption match {
+        case Some(hd) =>
+          val hdF = hd.filter(p)
+          hdF onFailure {
+            case filterEx: NoSuchElementException => loop(futures.tail)
+            case e => resultPromise.failure(e)
+          }
+
+          hdF onSuccess { case v => resultPromise.success(v) }
+
+        case _ => resultPromise.failure(new NoSuchElementException)
+      }
+    loop(futures)
+    resultPromise.future
   }
 }
 

@@ -8,7 +8,7 @@ import com.amazonaws.services.dynamodbv2.document.{Item, PrimaryKey}
 import com.amazonaws.services.dynamodbv2.model.KeyType
 import scabot.amazon.DynamoDb
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{Promise, ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.Try
 
@@ -245,11 +245,12 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       val syncher = (for {
         bss <- jenkinsApi.buildStatusesForJob(job)
-        mostRecentBuild <- jenkinsApi.buildStatusesForJob(job).map(_.find(_.paramsMatch(expected))) // first == most recent
-        if githubReport != mostRecentBuild.map(summarizeBuildStatus)
+        // don't bombard poor jenkins, find in sequence (usually, the first try is successful)
+        mostRecentBuild <- findFirstSequentially(bss)(_.paramsMatch(expected)) //  first == most recent
+        if githubReport != summarizeBuildStatus(mostRecentBuild)
       } yield {
         // the status we found on the PR didn't match what Jenkins told us --> synch
-        mostRecentBuild foreach (bs => handleJobState(job, combiCommitStatus.sha, bs))
+        handleJobState(job, combiCommitStatus.sha, mostRecentBuild)
         val msg = s"Updating ${combiCommitStatus.sha} of #$pr from ${combiCommitStatus.statuses.headOption} to $mostRecentBuild."
         log.debug(msg)
         msg

@@ -154,15 +154,15 @@ trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.
       *
       * Only statuses for the specified job (`job.name`) that have parameters that match all of `expectedArgs`
       */
-    def buildStatusesForJob(job: String): Future[Stream[BuildStatus]] = {
-      def queuedStati(q: Queue) = q.items.toStream.filter(_.jobName == job).map(_.toStatus)
-      def reportedStati(info: Job) = Future.sequence(info.builds.sorted.toStream.map(b => buildStatus(job, b.number)))
+    def buildStatusesForJob(job: String): Future[Stream[Future[BuildStatus]]] = {
+      def queuedStati(q: Queue) = q.items.toStream.filter(_.jobName == job).map(qs => Future.successful(qs.toStatus))
+      def reportedStati(info: Job) = info.builds.sorted.toStream.map(b => buildStatus(job, b.number))
 
       // hack: retrieve queued jobs from queue/api/json
       // queued items must come first, they have been added more recently or they wouldn't have been queued
       for {
         queued   <- p[Queue](Get(api("queue/api/json"))).map(queuedStati)
-        reported <-   p[Job](Get(api("job" / job / "api/json"))).flatMap(reportedStati)
+        reported <-   p[Job](Get(api("job" / job / "api/json"))).map(reportedStati)
       } yield queued ++ reported
     }
 
