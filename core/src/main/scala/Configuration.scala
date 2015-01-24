@@ -9,7 +9,7 @@ trait Configuration { self: Core =>
 
   object Config {
     case class Github(user: String, repo: String, host: String, token: String)
-    case class Jenkins(job: String, host: String, user: String, token: String)
+    case class Jenkins(job: String, host: String, user: String, token: String, jobPrefix: String)
   }
   import Config._
   case class Config(github: Github, jenkins: Jenkins)
@@ -40,10 +40,11 @@ trait Configuration { self: Core =>
     def jenkins(c: ConfigObject): Option[Jenkins] =
       for {
         job   <- configString(c.get("job"))
+        jobPrefix <- configString(c.get("jobPrefix"))
         host  <- configString(c.get("host"))
         user  <- configString(c.get("user"))
         token <- configString(c.get("token"))
-      } yield Jenkins(job, host, user, token)
+      } yield Jenkins(job, host, user, token, jobPrefix)
 
     def github(c: ConfigObject): Option[Github] =
       for {

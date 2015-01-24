@@ -65,7 +65,10 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
   }
 
   // TODO: factory method that caps state to 140 chars
-  case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None) extends HasState with HasContext
+  case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None) extends HasState with HasContext {
+    def forJob(job: String)(implicit lense: JobContextLense): Boolean = lense.contextForJob(job) == context
+    def jobName(implicit lense: JobContextLense): Option[String] = context.flatMap(lense.jobForContext)
+  }
 
   case class IssueComment(body: String, user: Option[User] = None, created_at: Date = None, updated_at: Date = None, id: Option[Long] = None) extends PRMessage
   case class PullRequestComment(body: String, user: Option[User] = None, commit_id: Option[String] = None, path: Option[String] = None, position: Option[Int] = None,

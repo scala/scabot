@@ -34,6 +34,11 @@ trait Core {
   final val PARAM_REPO_NAME = "repo_name"
   final val PARAM_REPO_REF  = "repo_ref"
   final val PARAM_PR        = "_scabot_pr"
+
+  trait JobContextLense {
+    def contextForJob(job: String): Option[String]
+    def jobForContext(context: String): Option[String]
+  }
 }
 
 

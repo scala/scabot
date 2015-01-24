@@ -151,29 +151,35 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       buildCommitsIfNeeded(pull, synchOnly = synchOnly)
     }
 
-    // TODO: is this necessary? just to be sure, as it looks like github refuses non-https links
-    private def commitTargetUrl(bs: BuildStatus) = bs.url.replace("http://", "https://")
+    implicit object jcl extends JobContextLense {
+      import CommitStatusConstants._
 
-    private def commitState(bs: BuildStatus) =
-      if (bs.building || bs.queued) CommitStatusConstants.PENDING
-      else if (bs.success) CommitStatusConstants.SUCCESS
-      else CommitStatusConstants.FAILURE
-
-    private def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
-      val advice = if (bs.failed) "Say /rebuild on PR to retry *spurious* failure." else ""
-      CommitStatus(commitState(bs),
-        context = Some(jobName),
-        description = Some(if (bs.queued) bs.status else s"[${bs.number}] ${bs.status}. ${bs.friendlyDuration} $advice".take(140)),
-        target_url = Some(commitTargetUrl(bs)))
+      // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
+      // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
+      def contextForJob(job: String): Option[String] = Some(job.replace(config.jenkins.jobPrefix, "")) // TODO: should only replace *prefix*, not just anywhere in string
+      def jobForContext(context: String): Option[String] = if (context == COMBINED) None else Some(config.jenkins.jobPrefix + context)
     }
 
+    object CommitBuildStatus {
+      // TODO: is this necessary? just to be sure, as it looks like github refuses non-https links
+      def urlForBuild(bs: BuildStatus) = Some(bs.url.replace("http://", "https://"))
 
-    // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
-    // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
-    private def contextIsJenkinsJob(context: String) = context != CommitStatusConstants.COMBINED
+      def stateForBuild(bs: BuildStatus) =
+        if (bs.building || bs.queued) CommitStatusConstants.PENDING
+        else if (bs.success) CommitStatusConstants.SUCCESS
+        else CommitStatusConstants.FAILURE
+    }
+
+    private def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
+      import CommitBuildStatus._
+      val advice = if (bs.failed) "Say /rebuild on PR to retry *spurious* failure." else ""
+      CommitStatus(stateForBuild(bs), implicitly[JobContextLense].contextForJob(jobName),
+        description = Some(if (bs.queued) bs.status else s"[${bs.number}] ${bs.status}. ${bs.friendlyDuration} $advice".take(140)),
+        target_url = urlForBuild(bs))
+    }
 
     private def combiStatus(state: String, msg: String): CommitStatus =
-      CommitStatus(state, context = Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
+      CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
 
 
     private def handleJobState(jobName: String, sha: String, bs: BuildStatus) = {
@@ -193,7 +199,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       val newStatus = commitStatus(jobName, bs)
       val postStatus = (for {
-        currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.context == Some(jobName)).headOption)
+        currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(jobName)).headOption)
         if currentStatus != Some(newStatus)
         posting <- githubApi.postStatus(sha, newStatus)
         _       <- Future.successful(log.debug(s"Posted status on $sha for $jobName $bs:\n$posting"))
@@ -229,11 +235,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
     private def synchBuildStatus(combiCommitStatus: CombiCommitStatus, job: String): Future[String] = {
-      val jobStatus    = combiCommitStatus.statuses.find(_.context == Some(job))
+      val jobStatus    = combiCommitStatus.statuses.find(_.forJob(job))
       val githubReport = jobStatus.flatMap(cs => cs.target_url.map(url => (cs.state, url)))
 
       // summarize jenkins's report as the salient parts of a CommitStatus (should match what github reported in combiCommitStatus)
-      def summarizeBuildStatus(bs: BuildStatus) = (commitState(bs), commitTargetUrl(bs))
+      def summarizeBuildStatus(bs: BuildStatus) = (CommitBuildStatus.stateForBuild(bs), CommitBuildStatus.urlForBuild(bs))
       val expected = jobParams(combiCommitStatus.sha)
 
       val syncher = (for {
@@ -261,7 +267,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     // unless gatherAllJobs, the result only includes jobs whose most recent status was a failure
     private def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
       val mainJob     = config.jenkins.job
-      val statusByJob = Map(mainJob -> Nil) ++: combiCommitStatus.statuses.groupBy(_.context).collect { case (Some(job), stati) if contextIsJenkinsJob(job) => (job, stati) }
+      val statusByJob = Map(mainJob -> Nil) ++: combiCommitStatus.statuses.groupBy(_.jobName).collect { case (Some(job), stati) => (job, stati) }
 
       def shouldBuild(stati: List[CommitStatus]): Boolean = gatherAllJobs || stati.headOption.forall(_.failure)
 
@@ -275,7 +281,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         if (jobs.isEmpty) "No need to build"
         else s"Found jobs ${jobs.mkString(", ")} TODO"
 
-      log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, all=$gatherAllJobs), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.context)}")
+      log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, all=$gatherAllJobs), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName)}")
 
       jobs
     }
