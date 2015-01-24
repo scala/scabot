@@ -64,15 +64,17 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     override def toString = s"Build $number: $status $friendlyDuration ($url)."
   }
 
+  class QueuedBuildStatus(result: String, actions: Option[List[Action]], url: String) extends BuildStatus(0, result, false, -1, actions, url) {
+    override def queued = true
+  }
+
   case class Queue(items: List[QueueItem])
 
   case class QueueItem(actions: Option[List[Action]], task: Task, id: Int) {
     def jobName = task.name
 
     // the url is fake but needs to be unique
-    def toStatus = new BuildStatus(0, s"Queued build for ${task.name} id: ${id}", false, -1, actions, task.url + "#queued-" + id) {
-      override def queued = true
-    }
+    def toStatus = new QueuedBuildStatus(s"Queued build for ${task.name} id: ${id}", actions, task.url + "#queued-" + id)
   }
 
   case class Task(name: String, url: String)

@@ -219,8 +219,9 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     private def launchBuild(sha: String, job: String = config.jenkins.job): Future[String] = {
       val launcher = for {
+        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(s"Launched $job for ${sha take 6}", None, "")))
         buildRes <- jenkinsApi.buildJob(job, jobParams(sha))
-        _        <- Future.successful(log.debug(s"Launched $job for $sha: $buildRes"))
+        _        <- Future.successful(log.info(s"Launched $job for $sha: $buildRes"))
       } yield buildRes
 
       launcher onFailure { case e => log.warning(s"FAILED launchBuild($sha, $job): $e") }
