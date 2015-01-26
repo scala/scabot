@@ -59,7 +59,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     // ignore PRs owned by the kitteh
     def mkPRActor(nb: Int): ActorRef =
-      if (config.github.user != "scala" || nb > 4265) actorOf(Props(new PullRequestActor(nb, config)), nb.toString)
+      if (config.github.user != "scala" || nb > 4267) actorOf(Props(new PullRequestActor(nb, config)), nb.toString)
       else actorOf(Props(new NoopPullRequestActor), nb.toString)
 
 
