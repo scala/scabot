@@ -236,6 +236,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       val newStatus = commitStatus(jobName, bs)
       val postStatus = (for {
         currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(jobName)).headOption)
+        _       <- Future.successful(log.debug(s"New status (new? ${currentStatus != Some(newStatus)}) for $sha: $newStatus old: $currentStatus"))
         if currentStatus != Some(newStatus)
         posting <- githubApi.postStatus(sha, newStatus)
         _       <- Future.successful(log.debug(s"Posted status on $sha for $jobName $bs:\n$posting"))
