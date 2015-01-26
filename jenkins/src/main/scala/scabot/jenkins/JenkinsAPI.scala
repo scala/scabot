@@ -49,8 +49,9 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     def queued = false
     def success = result == "SUCCESS"
     def failed = !(queued || building || success)
+    // TODO deal with ABORTED and intermittent failure (should retry these with different strategy from failures?)
 
-    def status = if (queued) "Queued" else if (building) "Building" else result
+    def status = if (building) "Building" else result
     def parameters = (for {
       actions           <- actions.toList
       action            <- actions
@@ -61,10 +62,10 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     def paramsMatch(expectedArgs: Map[String, String]): Boolean =
       parameters.filterKeys(expectedArgs.isDefinedAt) == expectedArgs
 
-    override def toString = s"Build $number: $status $friendlyDuration ($url)."
+    override def toString = s"[$number] $status. $friendlyDuration"
   }
 
-  class QueuedBuildStatus(result: String, actions: Option[List[Action]], url: String) extends BuildStatus(0, result, false, -1, actions, url) {
+  class QueuedBuildStatus(result: String, actions: Option[List[Action]], url: String) extends BuildStatus(0, result, false, 0, actions, url) {
     override def queued = true
   }
 
@@ -74,7 +75,7 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     def jobName = task.name
 
     // the url is fake but needs to be unique
-    def toStatus = new QueuedBuildStatus(s"Queued build for ${task.name} id: ${id}", actions, task.url + "#queued-" + id)
+    def toStatus = new QueuedBuildStatus("Queued", actions, task.url + "#queued-" + id)
   }
 
   case class Task(name: String, url: String)

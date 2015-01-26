@@ -169,13 +169,15 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         if (bs.building || bs.queued) CommitStatusConstants.PENDING
         else if (bs.success) CommitStatusConstants.SUCCESS
         else CommitStatusConstants.FAILURE
+
+      def contextForJob(jobName: String): Option[String] = implicitly[JobContextLense].contextForJob(jobName)
     }
 
     private def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
       import CommitBuildStatus._
-      val advice = if (bs.failed) "Say /rebuild on PR to retry *spurious* failure." else ""
-      CommitStatus(stateForBuild(bs), implicitly[JobContextLense].contextForJob(jobName),
-        description = Some(if (bs.queued) bs.status else s"[${bs.number}] ${bs.status}. ${bs.friendlyDuration} $advice".take(140)),
+      val advice = if (bs.failed) " Say /rebuild on PR to retry *spurious* failure." else ""
+      CommitStatus(stateForBuild(bs), contextForJob(jobName),
+        description = Some((bs.toString + advice) take 140),
         target_url = urlForBuild(bs))
     }
 
@@ -226,7 +228,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     private def launchBuild(sha: String, job: String = config.jenkins.job): Future[String] = {
       val launcher = for {
-        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(s"Launched $job for ${sha take 6}", None, "")))
+        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(s"Launched for ${sha take 6}", None, "")))
         buildRes <- jenkinsApi.buildJob(job, jobParams(sha))
         _        <- Future.successful(log.info(s"Launched $job for $sha: $buildRes"))
       } yield buildRes
