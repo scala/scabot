@@ -71,7 +71,7 @@ trait HttpClient { self: Core =>
   // TODO: use spray's url abstraction instead
   implicit class SlashyString(_str: String) { def /(o: Any) = _str +"/"+ o.toString }
 
-  def httpLoggingLevel = akka.event.Logging.DebugLevel //InfoLevel
+  val logResponseBody = {response: HttpResponse => system.log.debug(response.entity.asString); response }
 
   // use this to initialize an implicit of type Future[SendReceive], for use with p (for "pipeline") and px below
   def setupConnection(host: String, credentials: HttpCredentials): Future[SendReceive] = {
@@ -82,7 +82,7 @@ trait HttpClient { self: Core =>
 
     for (
       Http.HostConnectorInfo(connector, _) <- IO(Http) ? HostConnectorSetup(host = host, port = 443, sslEncryption = true)
-    ) yield addCredentials(credentials) ~> /*logRequest(system.log, httpLoggingLevel) ~> */sendReceive(connector) ~> logResponse(system.log, httpLoggingLevel)
+    ) yield addCredentials(credentials) ~> sendReceive(connector) ~> logResponseBody
   }
 
   def p[T: FromResponseUnmarshaller](req: HttpRequest)(implicit connection: Future[SendReceive]): Future[T] =
