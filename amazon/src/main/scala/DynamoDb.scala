@@ -1,5 +1,5 @@
 package scabot
-package server
+package amazon
 
 
 import com.amazonaws.auth._

@@ -6,6 +6,7 @@ import java.util.NoSuchElementException
 import akka.actor._
 import com.amazonaws.services.dynamodbv2.document.{Item, PrimaryKey}
 import com.amazonaws.services.dynamodbv2.model.KeyType
+import scabot.amazon.DynamoDb
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
