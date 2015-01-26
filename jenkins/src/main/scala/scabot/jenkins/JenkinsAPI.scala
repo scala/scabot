@@ -37,7 +37,7 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
                          building: Boolean,
                          duration: Long,
                          actions: Option[List[Action]],
-                         url: String) {
+                         url: Option[String]) {
     assert(!(building && queued), "Cannot both be building and queued.")
 
     def friendlyDuration = Try {
@@ -65,7 +65,7 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     override def toString = s"[$number] $status. $friendlyDuration"
   }
 
-  class QueuedBuildStatus(result: String, actions: Option[List[Action]], url: String) extends BuildStatus(0, result, false, 0, actions, url) {
+  class QueuedBuildStatus(result: String, actions: Option[List[Action]], url: String) extends BuildStatus(0, result, false, 0, actions, Some(url)) {
     override def queued = true
   }
 

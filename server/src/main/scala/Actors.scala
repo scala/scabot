@@ -167,7 +167,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       def mainValidationJob = config.jenkins.job
 
       // TODO: is this necessary? just to be sure, as it looks like github refuses non-https links
-      def urlForBuild(bs: BuildStatus) = Some(bs.url.replace("http://", "https://"))
+      def urlForBuild(bs: BuildStatus) = Some(bs.url.map(_.replace("http://", "https://")).getOrElse(""))
 
       def stateForBuild(bs: BuildStatus) =
         if (bs.building || bs.queued) CommitStatusConstants.PENDING
