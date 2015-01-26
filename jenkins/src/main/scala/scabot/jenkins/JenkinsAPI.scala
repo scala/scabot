@@ -33,25 +33,23 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
   }
 
   case class BuildStatus(number: Int,
-                         result: String,
+                         result: Option[String],
                          building: Boolean,
                          duration: Long,
                          actions: Option[List[Action]],
-                         url: Option[String]) {
-    assert(!(building && queued), "Cannot both be building and queued.")
-
+                         url: Option[String]) { // TODO url may not need to be optional -- not sure
     def friendlyDuration = Try {
       val seconds = duration.toInt / 1000
       if (seconds == 0) ""
       else "Took "+ (if (seconds <= 90) s"$seconds s." else s"${seconds / 60} min.")
     } getOrElse ""
 
-    def queued = false
-    def success = result == "SUCCESS"
-    def failed = !(queued || building || success)
+    def queued  = result.isEmpty
+    def success = result == Some("SUCCESS")
+    def failed  = !(queued || building || success)
     // TODO deal with ABORTED and intermittent failure (should retry these with different strategy from failures?)
 
-    def status = if (building) "Building" else result
+    def status = if (building) "Building" else result.getOrElse("Pending")
     def parameters = (for {
       actions           <- actions.toList
       action            <- actions
@@ -65,8 +63,10 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     override def toString = s"[$number] $status. $friendlyDuration"
   }
 
-  class QueuedBuildStatus(result: String, actions: Option[List[Action]], url: String) extends BuildStatus(0, result, false, 0, actions, Some(url)) {
-    override def queued = true
+  class QueuedBuildStatus(actions: Option[List[Action]], url: Option[String]) extends BuildStatus(0, None, false, 0, actions, url) {
+    def this(params: Map[String, String], url: Option[String]) {
+      this(Some(List(Action(Some(params.toList.map { case (k, v) => Param(k, Some(v))})))), url)
+    }
   }
 
   case class Queue(items: List[QueueItem])
@@ -75,7 +75,7 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     def jobName = task.name
 
     // the url is fake but needs to be unique
-    def toStatus = new QueuedBuildStatus("Queued", actions, task.url + "#queued-" + id)
+    def toStatus = new QueuedBuildStatus(actions, Some(task.url + "#queued-" + id))
   }
 
   case class Task(name: String, url: String)

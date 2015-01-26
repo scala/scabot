@@ -256,7 +256,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     private def launchBuild(sha: String, job: String = BuildHelp.mainValidationJob): Future[String] = {
       import BuildHelp._
       val launcher = for {
-        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(s"Launched for ${sha take 6}", None, "")))
+        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(jobParams(sha), None)))
         buildRes <- jenkinsApi.buildJob(job, jobParams(sha))
         _        <- Future.successful(log.info(s"Launched $job for $sha: $buildRes"))
       } yield buildRes
