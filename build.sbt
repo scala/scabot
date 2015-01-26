@@ -3,13 +3,13 @@ import com.typesafe.sbt.SbtNativePackager._
 name := "scabot"
 
 organization in ThisBuild := "com.typesafe"
-version      in ThisBuild := "0.0.0"
+version      in ThisBuild := "0.1.0"
 scalaVersion in ThisBuild := "2.11.5"
 
 lazy val deps: Seq[sbt.Def.Setting[_]] =  Seq(
   libraryDependencies ++= Seq(
-    "com.typesafe.akka" %% "akka-actor"      % "2.3.9",
-    "com.typesafe.akka" %% "akka-kernel"     % "2.3.9",
+    "com.typesafe.akka" %% "akka-actor"     % "2.3.9",
+    "com.typesafe.akka" %% "akka-kernel"    % "2.3.9",
     "io.spray"          %% "spray-can"      % "1.3.2",
     "io.spray"          %% "spray-client"   % "1.3.2",
     "io.spray"          %% "spray-routing"  % "1.3.2",

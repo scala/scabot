@@ -152,16 +152,20 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       buildCommitsIfNeeded(pull, synchOnly = synchOnly)
     }
 
-    implicit object jcl extends JobContextLense {
-      import CommitStatusConstants._
 
-      // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
-      // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
-      def contextForJob(job: String): Option[String] = Some(job.replace(config.jenkins.jobPrefix, "")) // TODO: should only replace *prefix*, not just anywhere in string
-      def jobForContext(context: String): Option[String] = if (context == COMBINED) None else Some(config.jenkins.jobPrefix + context)
-    }
+    object BuildHelp {
+      implicit object jcl extends JobContextLense {
+        import CommitStatusConstants._
 
-    object CommitBuildStatus {
+        // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
+        // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
+        def contextForJob(job: String): Option[String] = Some(job.replace(config.jenkins.jobPrefix, "")) // TODO: should only replace *prefix*, not just anywhere in string
+        def jobForContext(context: String): Option[String] = if (context == COMBINED) None else Some(config.jenkins.jobPrefix + context)
+      }
+
+      // TODO: depends on PR's target (currently hardcoded to 2.11.x)
+      def mainValidationJob = config.jenkins.job
+
       // TODO: is this necessary? just to be sure, as it looks like github refuses non-https links
       def urlForBuild(bs: BuildStatus) = Some(bs.url.replace("http://", "https://"))
 
@@ -171,19 +175,47 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         else CommitStatusConstants.FAILURE
 
       def contextForJob(jobName: String): Option[String] = implicitly[JobContextLense].contextForJob(jobName)
+
+      def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
+        val advice = if (bs.failed) " Say /rebuild on PR to retry *spurious* failure." else ""
+        CommitStatus(stateForBuild(bs), contextForJob(jobName),
+          description = Some((bs.toString + advice) take 140),
+          target_url = urlForBuild(bs))
+      }
+
+      def combiStatus(state: String, msg: String): CommitStatus =
+        CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
+
+      def jobParams(sha: String): Map[String, String] = Map (
+        PARAM_PR        -> pr.toString,
+        PARAM_REPO_USER -> config.github.user,
+        PARAM_REPO_NAME -> config.github.repo,
+        PARAM_REPO_REF  -> sha
+      )
+
+      // result is a subset of (config.jenkins.job and the contexts found in combiCommitStatus.statuses that are jenkins jobs)
+      // if not rebuilding or gathering all jobs, this subset is either empty or the main job (if no statuses were found for it)
+      // unless gatherAllJobs, the result only includes jobs whose most recent status was a failure
+      def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
+        val statusByJob = Map(mainValidationJob -> Nil) ++: combiCommitStatus.statuses.groupBy(_.jobName).collect { case (Some(job), stati) => (job, stati) }
+
+        def shouldBuild(stati: List[CommitStatus]): Boolean = gatherAllJobs || stati.headOption.forall(_.failure)
+
+        // We've built this before and we were asked to rebuild. For all jobs that have ended in failure, launch a build.
+        val jobs =
+          if (rebuild || gatherAllJobs) statusByJob.collect { case (job, stati) if shouldBuild(stati) => job }.toList
+          else if (statusByJob(mainValidationJob).isEmpty) List(mainValidationJob)
+          else Nil
+
+        val jobMsg =
+          if (jobs.isEmpty) "No need to build"
+          else s"Found jobs ${jobs.mkString(", ")} TODO"
+
+        log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, all=$gatherAllJobs), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName)}")
+
+        jobs
+      }
     }
-
-    private def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
-      import CommitBuildStatus._
-      val advice = if (bs.failed) " Say /rebuild on PR to retry *spurious* failure." else ""
-      CommitStatus(stateForBuild(bs), contextForJob(jobName),
-        description = Some((bs.toString + advice) take 140),
-        target_url = urlForBuild(bs))
-    }
-
-    private def combiStatus(state: String, msg: String): CommitStatus =
-      CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
-
 
     private def handleJobState(jobName: String, sha: String, bs: BuildStatus) = {
       // not called -- see if we can live with less noise
@@ -200,6 +232,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           case _: NoSuchElementException => s"Avoiding double-commenting on $sha for $jobName"
         }
 
+      import BuildHelp._
       val newStatus = commitStatus(jobName, bs)
       val postStatus = (for {
         currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(jobName)).headOption)
@@ -219,14 +252,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
 
-    private def jobParams(sha: String): Map[String, String] = Map (
-      PARAM_PR        -> pr.toString,
-      PARAM_REPO_USER -> config.github.user,
-      PARAM_REPO_NAME -> config.github.repo,
-      PARAM_REPO_REF  -> sha
-    )
-
-    private def launchBuild(sha: String, job: String = config.jenkins.job): Future[String] = {
+    private def launchBuild(sha: String, job: String = BuildHelp.mainValidationJob): Future[String] = {
+      import BuildHelp._
       val launcher = for {
         posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(s"Launched for ${sha take 6}", None, "")))
         buildRes <- jenkinsApi.buildJob(job, jobParams(sha))
@@ -238,11 +265,12 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
     private def synchBuildStatus(combiCommitStatus: CombiCommitStatus, job: String): Future[String] = {
+      import BuildHelp._
       val jobStatus    = combiCommitStatus.statuses.find(_.forJob(job))
       val githubReport = jobStatus.flatMap(cs => cs.target_url.map(url => (cs.state, url)))
 
       // summarize jenkins's report as the salient parts of a CommitStatus (should match what github reported in combiCommitStatus)
-      def summarizeBuildStatus(bs: BuildStatus) = (CommitBuildStatus.stateForBuild(bs), CommitBuildStatus.urlForBuild(bs))
+      def summarizeBuildStatus(bs: BuildStatus) = (stateForBuild(bs), urlForBuild(bs))
       val expected = jobParams(combiCommitStatus.sha)
 
       val syncher = (for {
@@ -266,30 +294,6 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       syncher
     }
 
-    // result is a subset of (config.jenkins.job and the contexts found in combiCommitStatus.statuses that are jenkins jobs)
-    // if not rebuilding or gathering all jobs, this subset is either empty or the main job (if no statuses were found for it)
-    // unless gatherAllJobs, the result only includes jobs whose most recent status was a failure
-    private def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
-      val mainJob     = config.jenkins.job
-      val statusByJob = Map(mainJob -> Nil) ++: combiCommitStatus.statuses.groupBy(_.jobName).collect { case (Some(job), stati) => (job, stati) }
-
-      def shouldBuild(stati: List[CommitStatus]): Boolean = gatherAllJobs || stati.headOption.forall(_.failure)
-
-      // We've built this before and we were asked to rebuild. For all jobs that have ended in failure, launch a build.
-      val jobs =
-        if (rebuild || gatherAllJobs) statusByJob.collect { case (job, stati) if shouldBuild(stati) => job }.toList
-        else if (statusByJob(mainJob).isEmpty) List(mainJob)
-        else Nil
-
-      val jobMsg =
-        if (jobs.isEmpty) "No need to build"
-        else s"Found jobs ${jobs.mkString(", ")} TODO"
-
-      log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, all=$gatherAllJobs), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName)}")
-
-      jobs
-    }
-
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
     private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[List[String]]] = {
       def fetchCommitStatus(sha: String) = {
@@ -304,7 +308,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
-            jobs      = jobsTodo(combiCs, rebuild = forceRebuild, gatherAllJobs = synchOnly)
+            jobs      = BuildHelp.jobsTodo(combiCs, rebuild = forceRebuild, gatherAllJobs = synchOnly)
             buildRes <- Future.sequence(
               if (synchOnly) jobs.map(synchBuildStatus(combiCs, _))
               else jobs.map(launchBuild(combiCs.sha, _)))
@@ -318,6 +322,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     // so that all statuses are (indirectly) considered by github when coloring the merge button green/red
     private def propagateEarlierStati(pull: PullRequest, causeSha: String = ""): Future[List[CommitStatus]] = {
       import CommitStatusConstants._
+      import BuildHelp._
 
       def postLast(lastSha: String, desc: String, state: String, lastStss: List[CommitStatus]) =
         for { _ <- Future.successful()
@@ -354,7 +359,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
 
-    def milestoneForBranch(branch: String): Future[Milestone] = for {
+    private def milestoneForBranch(branch: String): Future[Milestone] = for {
       mss <- githubApi.repoMilestones()
     } yield mss.find(_.mergeBranch == branch).get
 
@@ -388,66 +393,75 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       commentResults <- Future.sequence(comments.map(handleComment))
     } yield commentResults
 
-    private lazy val seenCommandsTable = {
-      val ddc    = new DynoDbClient
-      val _table = new ddc.DynoDbTable("scabot-seen-commands")
-      if (!_table.exists) _table.create(List(("Id", KeyType.HASH)), List(("Id", "N")))
-      _table
+    private object seenComments {
+      private val ddc    = new DynoDbClient
+      private val _table = {
+        val t = new ddc.DynoDbTable("scabot-seen-commands")
+        if (!t.exists) t.create(List(("Id", KeyType.HASH)), List(("Id", "N")))
+        t
+      }
+
+      def apply(id: Long): Future[Boolean] =
+        _table.get(new PrimaryKey("Id", id)).map(_.nonEmpty)
+
+      def +=(id: Long): Future[String] =
+        _table.put((new Item).withPrimaryKey("Id", id)).map(_.getPutItemResult.toString)
     }
 
-    private def seenCommentId(id: Long): Future[Boolean] =
-      seenCommandsTable.get(new PrimaryKey("Id", id)).map(_.nonEmpty)
+    private def handleComment(comment: IssueComment): Future[Any] = {
+      import Commands._
 
-    private def sawCommentId(id: Long): Future[String] =
-      seenCommandsTable.put((new Item).withPrimaryKey("Id", id)).map(_.getPutItemResult.toString)
+      if (!hasCommand(comment.body)) {
+        log.debug(s"No command in $comment")
+        Future.successful("No Command found")
+      } else {
+        (for {
+          id <- Future {
+            comment.id.get
+          } // the get will fail the future if somehow id is empty
+          seen <- seenComments(id)
+          if !seen
+          _ <- seenComments += id
+          res <- {
+            log.debug(s"Executing command for ${comment.body}")
+            comment.body match {
+              case REBUILD_SHA(sha) => rebuildSha(sha)
+              case REBUILD_ALL()    => rebuildAll()
+              case SYNCH()          => synch()
+            }
+          }
+        } yield res).recover {
+          case _: NoSuchElementException =>
+            val msg = s"Already handled $comment"
+            log.debug(msg)
+            msg
+          case _: MatchError             =>
+            val msg = s"Unknown command in $comment"
+            log.debug(msg)
+            msg
+        }
+      }
+    }
 
-    private def hasCommand(body: String) = body.startsWith("/")
+    object Commands {
+      def hasCommand(body: String) = body.startsWith("/")
 
-    private def handleComment(comment: IssueComment): Future[Any] =
-     if (!hasCommand(comment.body)) {
-       log.debug(s"No command in $comment")
-       Future.successful("No Command found")
-     } else {
-       (for {
-         id   <- Future { comment.id.get } // the get will fail the future if somehow id is empty
-         seen <- seenCommentId(id)
-         if !seen
-         _    <- sawCommentId(id)
-         res  <- {
-           log.debug(s"Executing command for ${comment.body}")
-           comment.body match {
-             case REBUILD_SHA(sha) => commandRebuildSha(sha)
-             case REBUILD_ALL()    => commandRebuildAll()
-             case SYNCH()          => commandSynch()
-           }
-         }
-       } yield res).recover {
-         case _: NoSuchElementException =>
-           val msg = s"Already handled $comment"
-           log.debug(msg)
-           msg
-         case _: MatchError =>
-           val msg = s"Unknown command in $comment"
-           log.debug(msg)
-           msg
-       }
-     }
+      final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
+      def rebuildSha(sha: String) = launchBuild(sha)
 
-    private final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
-    def commandRebuildSha(sha: String) = launchBuild(sha)
+      final val REBUILD_ALL = """^/rebuild""".r.unanchored
+      def rebuildAll() =
+        for {
+          pull     <- githubApi.pullRequest(pr)
+          buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
+        } yield buildRes
 
-    private final val REBUILD_ALL = """^/rebuild""".r.unanchored
-    def commandRebuildAll() =
-      for {
-        pull     <- githubApi.pullRequest(pr)
-        buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
-      } yield buildRes
-
-    private final val SYNCH = """^/sync""".r.unanchored
-    def commandSynch() =
-      for {
-        pull     <- githubApi.pullRequest(pr)
-        synchRes <- handlePR("synchronize", pull, synchOnly = true)
-      } yield synchRes
+      final val SYNCH = """^/sync""".r.unanchored
+      def synch() =
+        for {
+          pull     <- githubApi.pullRequest(pr)
+          synchRes <- handlePR("synchronize", pull, synchOnly = true)
+        } yield synchRes
+    }
   }
 }
