@@ -202,14 +202,25 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       // if not rebuilding or gathering all jobs, this subset is either empty or the main job (if no statuses were found for it)
       // unless gatherAllJobs, the result only includes jobs whose most recent status was a failure
       def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
-        val statusByJob = Map(mainValidationJob -> Nil) ++: combiCommitStatus.statuses.groupBy(_.jobName).collect { case (Some(job), stati) => (job, stati) }
+        // TODO: filter out aborted stati?
+        // TODO: for pending jobs, check that they are indeed pending?
+        def considerStati(stati: List[CommitStatus]): Boolean = gatherAllJobs || stati.headOption.forall(_.failure)
 
-        def shouldBuild(stati: List[CommitStatus]): Boolean = gatherAllJobs || stati.headOption.forall(_.failure)
+        val shouldConsider = Map(mainValidationJob -> true) ++: combiCommitStatus.statuses.groupBy(_.jobName).collect {
+          case (Some(job), stati) => (job, considerStati(stati))
+        }
+
+        val allToConsider = shouldConsider.collect{case (job, true) => job}
 
         // We've built this before and we were asked to rebuild. For all jobs that have ended in failure, launch a build.
+        // TODO: once we support overriding main job with results of its downstream jobs,
+        //       on rebuild, we should yield only the downstream jobs, overriding the main job once they finish
+        // lazy val nonMainToBuild = allToConsider.toSet -  mainValidationJob
+
         val jobs =
-          if (rebuild || gatherAllJobs) statusByJob.collect { case (job, stati) if shouldBuild(stati) => job }.toList
-          else if (statusByJob(mainValidationJob).isEmpty) List(mainValidationJob)
+          if (gatherAllJobs) allToConsider.toList
+//          else if (rebuild && nonMainToBuild.nonEmpty) nonMainToBuild.toList
+          else if (shouldConsider(mainValidationJob)) List(mainValidationJob)
           else Nil
 
         val jobMsg =
