@@ -186,12 +186,17 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       def combiStatus(state: String, msg: String): CommitStatus =
         CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
 
-      def jobParams(sha: String): Map[String, String] = Map (
-        PARAM_PR        -> pr.toString,
-        PARAM_REPO_USER -> config.github.user,
-        PARAM_REPO_NAME -> config.github.repo,
-        PARAM_REPO_REF  -> sha
-      )
+      def jobParams(sha: String, lastCommit: Boolean): Map[String, String] = {
+        // TODO: temporary until we run real integration on the actual merge commit
+        val lastParam = if (lastCommit) Map(PARAM_LAST -> "1") else Map.empty
+
+        lastParam ++ Map (
+          PARAM_PR        -> pr.toString,
+          PARAM_REPO_USER -> config.github.user,
+          PARAM_REPO_NAME -> config.github.repo,
+          PARAM_REPO_REF  -> sha
+        )
+      }
 
       // result is a subset of (config.jenkins.job and the contexts found in combiCommitStatus.statuses that are jenkins jobs)
       // if not rebuilding or gathering all jobs, this subset is either empty or the main job (if no statuses were found for it)
@@ -253,11 +258,12 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
 
-    private def launchBuild(sha: String, job: String = BuildHelp.mainValidationJob): Future[String] = {
+    private def launchBuild(sha: String, lastCommit: Boolean, job: String = BuildHelp.mainValidationJob): Future[String] = {
       import BuildHelp._
+
       val launcher = for {
-        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(jobParams(sha), None)))
-        buildRes <- jenkinsApi.buildJob(job, jobParams(sha))
+        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(jobParams(sha, lastCommit), None)))
+        buildRes <- jenkinsApi.buildJob(job, jobParams(sha, lastCommit))
         _        <- Future.successful(log.info(s"Launched $job for $sha: $buildRes"))
       } yield buildRes
 
@@ -265,14 +271,14 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       launcher
     }
 
-    private def synchBuildStatus(combiCommitStatus: CombiCommitStatus, job: String): Future[String] = {
+    private def synchBuildStatus(combiCommitStatus: CombiCommitStatus, lastCommit: Boolean, job: String): Future[String] = {
       import BuildHelp._
       val jobStatus    = combiCommitStatus.statuses.find(_.forJob(job))
       val githubReport = jobStatus.flatMap(cs => cs.target_url.map(url => (cs.state, url)))
 
       // summarize jenkins's report as the salient parts of a CommitStatus (should match what github reported in combiCommitStatus)
       def summarizeBuildStatus(bs: BuildStatus) = (stateForBuild(bs), urlForBuild(bs))
-      val expected = jobParams(combiCommitStatus.sha)
+      val expected = jobParams(combiCommitStatus.sha, lastCommit)
 
       val syncher = (for {
         bss <- jenkinsApi.buildStatusesForJob(job)
@@ -305,14 +311,15 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       for {
         commits <- githubApi.pullRequestCommits(pr)
+        lastSha = commits.last.sha // safe to assume commits of a pr is nonEmpty
         results <- Future.sequence(commits map { commit =>
           log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
             jobs      = BuildHelp.jobsTodo(combiCs, rebuild = forceRebuild, gatherAllJobs = synchOnly)
             buildRes <- Future.sequence(
-              if (synchOnly) jobs.map(synchBuildStatus(combiCs, _))
-              else jobs.map(launchBuild(combiCs.sha, _)))
+              if (synchOnly) jobs.map(synchBuildStatus(combiCs, combiCs.sha == lastSha, _))
+              else jobs.map(launchBuild(combiCs.sha, combiCs.sha == lastSha, _)))
           } yield buildRes
         })
       } yield results
@@ -457,7 +464,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       def hasCommand(body: String) = body.startsWith("/")
 
       final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
-      def rebuildSha(sha: String) = launchBuild(sha)
+      def rebuildSha(sha: String) = for {
+        commits <- githubApi.pullRequestCommits(pr)
+        lastSha = commits.last.sha // safe to assume commits of a pr is nonEmpty
+        build <- launchBuild(sha, sha == lastSha)
+      } yield build
 
       final val REBUILD_ALL = """^/rebuild""".r.unanchored
       def rebuildAll() =

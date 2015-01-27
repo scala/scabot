@@ -34,6 +34,7 @@ trait Core extends Util {
   final val PARAM_REPO_NAME = "repo_name"
   final val PARAM_REPO_REF  = "repo_ref"
   final val PARAM_PR        = "_scabot_pr"
+  final val PARAM_LAST      = "_scabot_last" // TODO: temporary until we run real integration on the actual merge commit
 
   trait JobContextLense {
     def contextForJob(job: String): Option[String]
