@@ -362,7 +362,12 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     private def milestoneForBranch(branch: String): Future[Milestone] = for {
       mss <- githubApi.repoMilestones()
-    } yield mss.find(_.mergeBranch == branch).get
+      ms <- Future {
+        val msOpt = mss.find(_.mergeBranch == Some(branch))
+        log.debug(s"Looking for milestone for $branch: $msOpt")
+        msOpt.get
+      }
+    } yield ms
 
 
     // if there's a milestone with description "Merge to ${pull.base.ref}.", set it as the PR's milestone
