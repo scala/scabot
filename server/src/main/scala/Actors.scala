@@ -378,16 +378,17 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       }
 
     private def hasLabelNamed(name: String) = githubApi.labels(pr).map(_.exists(_.name == name))
-    private def checkLGTM(pull: PullRequest) = for {
-    // purposefully only at start of line to avoid conditional LGTMs
-      hasLGTM <- githubApi.issueComments(pr).map(_.exists(_.body.startsWith("LGTM")))
+    private def synchReviewedLabel(hasLGTM: Boolean) = for {
       hasReviewedLabel <- hasLabelNamed("reviewed")
     } yield { // TODO react to labeled/unlabeled event on webhhook
       if (hasLGTM) { if (!hasReviewedLabel) githubApi.addLabel(pr, List(Label("reviewed"))) }
       else if (hasReviewedLabel) githubApi.deleteLabel(pr, "reviewed")
     }
 
-
+    private def checkLGTM(pull: PullRequest) = for {
+    // purposefully only at start of line to avoid conditional LGTMs
+      hasLGTM <- githubApi.issueComments(pr).map(_.exists(Commands.isLGTM))
+    } yield synchReviewedLabel(hasLGTM)
     
     private def execCommands(pullRequest: PullRequest) = for {
       comments       <- githubApi.issueComments(pr)
@@ -412,7 +413,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     private def handleComment(comment: IssueComment): Future[Any] = {
       import Commands._
 
-      if (!hasCommand(comment.body)) {
+      if (isLGTM(comment)) synchReviewedLabel(true)
+      else if (!hasCommand(comment.body)) {
         log.debug(s"No command in $comment")
         Future.successful("No Command found")
       } else {
@@ -445,6 +447,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
     object Commands {
+      def isLGTM(comment: IssueComment): Boolean = comment.body.startsWith("LGTM")
+
       def hasCommand(body: String) = body.startsWith("/")
 
       final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
