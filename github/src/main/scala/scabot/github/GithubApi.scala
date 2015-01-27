@@ -34,7 +34,7 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
     private val MergeBranch = """Merge to (\S+)\b""".r.unanchored
   }
   case class Milestone(number: Int, state: String, title: String, description: String, creator: User,
-                       created_at: Date, updated_at: Date, closed_at: Date, due_on: Option[Date]) {
+                       created_at: Date, updated_at: Date, closed_at: Option[Date], due_on: Option[Date]) {
     def mergeBranch = description match {
       case Milestone.MergeBranch(branch) => Some(branch)
       case _                             => None
