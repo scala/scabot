@@ -71,7 +71,7 @@ trait HttpClient { self: Core =>
   // TODO: use spray's url abstraction instead
   implicit class SlashyString(_str: String) { def /(o: Any) = _str +"/"+ o.toString }
 
-  val logResponseBody = {response: HttpResponse => system.log.debug(response.entity.asString); response }
+  val logResponseBody = {response: HttpResponse => system.log.debug(response.entity.asString.take(2000)); response }
 
   // use this to initialize an implicit of type Future[SendReceive], for use with p (for "pipeline") and px below
   def setupConnection(host: String, credentials: HttpCredentials): Future[SendReceive] = {
