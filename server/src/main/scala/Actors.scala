@@ -204,7 +204,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
         // TODO: filter out aborted stati?
         // TODO: for pending jobs, check that they are indeed pending?
-        def considerStati(stati: List[CommitStatus]): Boolean = gatherAllJobs || stati.headOption.forall(_.failure)
+        def considerStati(stati: List[CommitStatus]): Boolean =
+          gatherAllJobs || (if (rebuild) stati.headOption.forall(_.failure) else stati.isEmpty)
 
         val shouldConsider = Map(mainValidationJob -> true) ++: combiCommitStatus.statuses.groupBy(_.jobName).collect {
           case (Some(job), stati) => (job, considerStati(stati))
