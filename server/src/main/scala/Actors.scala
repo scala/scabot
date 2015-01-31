@@ -211,6 +211,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           case (Some(job), stati) => (job, considerStati(stati))
         }
 
+        log.debug(s"shouldConsider for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, all=$gatherAllJobs, consider main job: ${shouldConsider.get(mainValidationJob)}): $shouldConsider")
+
         val allToConsider = shouldConsider.collect{case (job, true) => job}
 
         // We've built this before and we were asked to rebuild. For all jobs that have ended in failure, launch a build.
