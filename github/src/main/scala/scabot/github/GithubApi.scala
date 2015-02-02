@@ -23,7 +23,7 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
   case class Repository(name: String, full_name: String, git_url: String,
                         updated_at: Date, created_at: Date, pushed_at: Date) // owner: Either[User, Author]
   case class GitRef(sha: String, label: String, ref: String, repo: Repository, user: User)
-  case class PullRequest(number: Int, state: String, title: String, body: String,
+  case class PullRequest(number: Int, state: String, title: String, body: Option[String],
                          created_at: Date, updated_at: Date, closed_at: Date, merged_at: Date,
                          head: GitRef, base: GitRef, user: User, merged: Option[Boolean], mergeable: Option[Boolean], merged_by: Option[User])
                          //, comments: Int, commits: Int, additions: Int, deletions: Int, changed_files: Int)
@@ -41,7 +41,7 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
     }
   }
 
-  case class Issue(number: Int, state: String, title: String, body: String, user: User, labels: List[Label],
+  case class Issue(number: Int, state: String, title: String, body: Option[String], user: User, labels: List[Label],
                    assignee: Option[User], milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date)
 
   case class CommitInfo(message: String, timestamp: Date, author: Author, committer: Author)
