@@ -9,6 +9,10 @@ import scala.util.Try
 trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions { self: core.Core with core.Configuration with core.HttpClient => }
 
 trait JenkinsApiTypes { self: core.Core with core.Configuration =>
+  object Job {
+    // avoid humongeous replies that would require more spray sophistication (chunking etc)
+    val XPath = "?tree=name,description,nextBuildNumber,builds[number,url],queueItem[*],lastBuild[number,url],firstBuild[number,url]"
+  }
   case class Job(name: String,
                  description: String,
                  nextBuildNumber: Int,
@@ -32,6 +36,10 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
     override def toString = "Parameters(%s)" format (parameters mkString ", ")
   }
 
+  object BuildStatus {
+    // avoid humongeous replies that would require more spray sophistication (chunking etc)
+    val XPath = "?tree=number,result,building,duration,actions[parameters[*]],url"
+  }
   case class BuildStatus(number: Int,
                          result: Option[String],
                          building: Boolean,
@@ -115,11 +123,11 @@ import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 // TODO: can we make this more debuggable?
 trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { self: core.Core with core.Configuration =>
   private type RJF[x] = RootJsonFormat[x]
-  implicit lazy val _fmtJob         : RJF[Job        ] = jsonFormat7(Job)
+  implicit lazy val _fmtJob         : RJF[Job        ] = jsonFormat7(Job.apply)
   implicit lazy val _fmtBuild       : RJF[Build      ] = jsonFormat2(Build)
   implicit lazy val _fmtParam       : RJF[Param      ] = jsonFormat2(Param)
   implicit lazy val _fmtActions     : RJF[Action     ] = jsonFormat1(Action)
-  implicit lazy val _fmtBuildStatus : RJF[BuildStatus] = jsonFormat6(BuildStatus)
+  implicit lazy val _fmtBuildStatus : RJF[BuildStatus] = jsonFormat6(BuildStatus.apply)
   implicit lazy val _fmtQueue       : RJF[Queue      ] = jsonFormat1(Queue)
   implicit lazy val _fmtQueueItem   : RJF[QueueItem  ] = jsonFormat3(QueueItem)
   implicit lazy val _fmtTask        : RJF[Task       ] = jsonFormat2(Task)
@@ -145,11 +153,11 @@ trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.
       ))
 
     def buildStatus(name: String, buildNumber: Int) =
-      p[BuildStatus](Get(api("job" / name / buildNumber / "api/json")))
+      p[BuildStatus](Get(api("job" / name / buildNumber / "api/json"+ BuildStatus.XPath)))
 
 
     def buildStatus(url: String) =
-      p[BuildStatus](Get(url / "api/json"))
+      p[BuildStatus](Get(url / "api/json"+ BuildStatus.XPath))
 
     /** A traversable that lazily pulls build status information from jenkins.
       *
@@ -163,7 +171,7 @@ trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.
       // queued items must come first, they have been added more recently or they wouldn't have been queued
       for {
         queued   <- p[Queue](Get(api("queue/api/json"))).map(queuedStati)
-        reported <-   p[Job](Get(api("job" / job / "api/json"))).map(reportedStati)
+        reported <-   p[Job](Get(api("job" / job / "api/json"+ Job.XPath))).map(reportedStati)
       } yield queued ++ reported
     }
 
