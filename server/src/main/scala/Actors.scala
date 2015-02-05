@@ -360,14 +360,21 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       syncher
     }
 
+    private def overrideFailures(combiCommitStatus: CombiCommitStatus): Future[List[CommitStatus]] =
+      Future.sequence(combiCommitStatus.statuses.groupBy(_.context).collect {
+        case (Some(context), mostRecentStatus :: _) if !mostRecentStatus.success =>
+          CommitStatus(CommitStatusConstants.SUCCESS, Some(context), description = Some("Failure overridden. Nothing to see here."), target_url = mostRecentStatus.target_url)
+      }.toList.map(githubApi.postStatus(combiCommitStatus.sha, _)))
+
+
+    private def fetchCommitStatus(sha: String) = {
+      val fetcher = githubApi.commitStatus(sha)
+      fetcher.onFailure { case e => log.warning(s"Couldn't get status for ${sha}: $e")}
+      fetcher
+    }
+
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
     private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[List[String]]] = {
-      def fetchCommitStatus(sha: String) = {
-        val fetcher = githubApi.commitStatus(sha)
-        fetcher.onFailure { case e => log.warning(s"Couldn't get status for ${sha}: $e")}
-        fetcher
-      }
-
       for {
         commits <- githubApi.pullRequestCommits(pr)
         lastSha = commits.last.sha // safe to assume commits of a pr is nonEmpty
@@ -498,9 +505,10 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           res <- {
             log.debug(s"Executing command for ${comment.body}")
             comment.body match {
-              case REBUILD_SHA(sha) => rebuildSha(sha)
-              case REBUILD_ALL()    => rebuildAll()
-              case SYNCH()          => synch()
+              case REBUILD_SHA(sha)   => rebuildSha(sha)
+              case REBUILD_ALL()      => rebuildAll()
+              case SYNCH()            => synch()
+              case NOTHINGTOSEEHERE() => nothingToSeeHere()
             }
           }
         } yield res).recover {
@@ -541,6 +549,18 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           pull     <- githubApi.pullRequest(pr)
           synchRes <- handlePR("synchronize", pull, synchOnly = true)
         } yield synchRes
+
+      final val NOTHINGTOSEEHERE = """^/nothingtoseehere""".r.unanchored
+      def nothingToSeeHere() =
+        for {
+          commits <- githubApi.pullRequestCommits(pr)
+          results <- Future.sequence(commits map { commit =>
+            for {
+              combiCs <- fetchCommitStatus(commit.sha)
+              res <- overrideFailures(combiCs)
+            } yield res })
+        } yield results
+
     }
   }
 }
