@@ -163,8 +163,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
         // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
         def contextForJob(job: String): Option[String] = Some(job.replace(prefix, "")) // TODO: should only replace *prefix*, not just anywhere in string
-        def jobForContext(context: String): Option[String] = if (context == COMBINED) None else Some(prefix + context)
+        def jobForContext(context: String): Option[String] = if (jenkinsContext(context)) Some(prefix + context) else None
       }
+
+      // TODO: extend (cla checker,...)
+      def jenkinsContext(context: String) = context != CommitStatusConstants.COMBINED
 
       // TODO: depends on PR's target (currently hardcoded to 2.11.x)
       def mainValidationJob = config.jenkins.job
@@ -181,7 +184,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
         val advice = if (bs.failed) " Say /rebuild on PR to retry *spurious* failure." else ""
-        CommitStatus(stateForBuild(bs), contextForJob(jobName),
+        commitStatusForContext(contextForJob(jobName), bs, advice)
+      }
+
+      def commitStatusForContext(context: Option[String], bs: BuildStatus, advice: String): CommitStatus = {
+        CommitStatus(stateForBuild(bs), context,
           description = Some((bs.toString + advice) take 140),
           target_url = urlForBuild(bs))
       }
@@ -204,17 +211,17 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       // result is a subset of (config.jenkins.job and the contexts found in combiCommitStatus.statuses that are jenkins jobs)
       // if not rebuilding or gathering all jobs, this subset is either empty or the main job (if no statuses were found for it)
       // unless gatherAllJobs, the result only includes jobs whose most recent status was a failure
-      def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean, gatherAllJobs: Boolean = false): List[String] = {
+      def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean): List[String] = {
         // TODO: filter out aborted stati?
         // TODO: for pending jobs, check that they are indeed pending?
         def considerStati(stati: List[CommitStatus]): Boolean =
-          gatherAllJobs || (if (rebuild) stati.headOption.forall(_.failure) else stati.isEmpty)
+          if (rebuild) stati.headOption.forall(_.failure) else stati.isEmpty
 
         val shouldConsider = Map(mainValidationJob -> true) ++: combiCommitStatus.statuses.groupBy(_.jobName).collect {
           case (Some(job), stati) => (job, considerStati(stati))
         }
 
-        log.debug(s"shouldConsider for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, all=$gatherAllJobs, consider main job: ${shouldConsider.get(mainValidationJob)}): $shouldConsider")
+        log.debug(s"shouldConsider for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, consider main job: ${shouldConsider.get(mainValidationJob)}): $shouldConsider")
 
         val allToConsider = shouldConsider.collect{case (job, true) => job}
 
@@ -224,16 +231,15 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         // lazy val nonMainToBuild = allToConsider.toSet -  mainValidationJob
 
         val jobs =
-          if (gatherAllJobs) allToConsider.toList
-//          else if (rebuild && nonMainToBuild.nonEmpty) nonMainToBuild.toList
-          else if (shouldConsider(mainValidationJob)) List(mainValidationJob)
+//        if (rebuild && nonMainToBuild.nonEmpty) nonMainToBuild.toList
+          if (shouldConsider(mainValidationJob)) List(mainValidationJob)
           else Nil
 
         val jobMsg =
           if (jobs.isEmpty) "No need to build"
           else s"Found jobs ${jobs.mkString(", ")} TODO"
 
-        log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, all=$gatherAllJobs), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName)}")
+        log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName)}")
 
         jobs
       }
@@ -288,33 +294,69 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       launcher
     }
 
-    private def synchBuildStatus(combiCommitStatus: CombiCommitStatus, lastCommit: Boolean, job: String): Future[String] = {
+    // synch contexts assumed to correspond to jenkins jobs with the most recent result of the corresponding build of the jenkins job specified by the context
+    private def synchBuildStatuses(combiCommitStatus: CombiCommitStatus, lastCommit: Boolean): Future[List[String]] = {
       import BuildHelp._
-      val jobStatus    = combiCommitStatus.statuses.find(_.forJob(job))
-      val githubReport = jobStatus.flatMap(cs => cs.target_url.map(url => (cs.state, url)))
 
-      // summarize jenkins's report as the salient parts of a CommitStatus (should match what github reported in combiCommitStatus)
-      def summarizeBuildStatus(bs: BuildStatus) = (stateForBuild(bs), urlForBuild(bs))
+      case class GitHubReport(state: String, url: Option[String])
+      def toReport(bs: BuildStatus) = GitHubReport(stateForBuild(bs), urlForBuild(bs))
+
+      def checkLinked(url: String): Future[BuildStatus] = for {
+        linkedBuild <- jenkinsApi.buildStatus(url)
+      } yield linkedBuild
+
       val expected = jobParams(combiCommitStatus.sha, lastCommit)
-
-      val syncher = (for {
+      def checkMostRecent(job: String): Future[BuildStatus] = for {
+      // summarize jenkins's report as the salient parts of a CommitStatus (should match what github reported in combiCommitStatus)
         bss <- jenkinsApi.buildStatusesForJob(job)
         // don't bombard poor jenkins, find in sequence (usually, the first try is successful)
         mostRecentBuild <- findFirstSequentially(bss)(_.paramsMatch(expected)) //  first == most recent
-        if githubReport != summarizeBuildStatus(mostRecentBuild)
-      } yield {
-        // the status we found on the PR didn't match what Jenkins told us --> synch
-        handleJobState(job, combiCommitStatus.sha, mostRecentBuild)
-        val msg = s"Updating ${combiCommitStatus.sha} of #$pr from ${combiCommitStatus.statuses.headOption} to $mostRecentBuild."
-        log.debug(msg)
-        msg
-      }) recover { case _: NoSuchElementException => // filtered out
-        val msg = s"No need to synch ${combiCommitStatus.sha} of #$pr. Jenkins in synch with: $githubReport."
-        log.debug(msg)
-        msg
+      } yield mostRecentBuild
+
+//      // the status we found on the PR didn't match what Jenkins told us --> synch
+//      def updateStatus(job: String, bs: BuildStatus) = for {
+//        res <- handleJobState(job, combiCommitStatus.sha, bs)
+//      } yield {
+//        val msg = s"Updating ${combiCommitStatus.sha} of #$pr from ${combiCommitStatus.statuses.headOption} to $bs."
+//        log.debug(msg)
+//        msg
+//      }
+
+      val githubReports = combiCommitStatus.statuses.groupBy(_.context).collect {
+        case (Some(context), mostRecentStatus :: _) if jenkinsContext(context) =>
+          (context, GitHubReport(mostRecentStatus.state, mostRecentStatus.target_url))
       }
 
-      syncher onFailure { case e => log.error(s"FAILED synchBuildStatus($combiCommitStatus, $job): $e") } // should never happen with the recover
+      def synchLinked(context: String, report: GitHubReport) = for {
+        url <- Future { report.url.get }
+        bs  <- checkLinked(url)
+        if bs.paramsMatch(expected)
+      } yield
+        if (toReport(bs) == report) None
+        else Some(commitStatusForContext(Some(context), bs, ""))
+
+      def synchMostRecent(context: String, report: GitHubReport) = for {
+        job <- Future { BuildHelp.jcl.jobForContext(context).get }
+        bs <- checkMostRecent(job)
+      } yield
+        if (toReport(bs) == report) None
+        else Some(commitStatus(job, bs))
+
+
+      val syncher = Future.sequence(githubReports.toList.map { case (context, report) =>
+        (for {
+          cs <-
+            synchMostRecent(context, report) recoverWith { case _: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException =>
+              synchLinked(context, report) recover { case _: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException =>
+                  Some(CommitStatus(CommitStatusConstants.SUCCESS, Some(context),
+                    description = Some("WARNING: no corresponding job found on Jenkins. Obsolete?"),
+                    target_url = report.url))
+              }}
+          res <- githubApi.postStatus(combiCommitStatus.sha, cs.get)
+        } yield res.toString) recover { case _ : NoSuchElementException => "No need to synch." }
+      })
+
+      syncher onFailure { case e => log.error(s"FAILED synchBuildStatuses($combiCommitStatus, $lastCommit): $e") } // should never happen with the recover
       syncher
     }
 
@@ -333,10 +375,9 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
-            jobs      = BuildHelp.jobsTodo(combiCs, rebuild = forceRebuild, gatherAllJobs = synchOnly)
-            buildRes <- Future.sequence(
-              if (synchOnly) jobs.map(synchBuildStatus(combiCs, combiCs.sha == lastSha, _))
-              else jobs.map(launchBuild(combiCs.sha, combiCs.sha == lastSha, _)))
+            buildRes <-
+              if (synchOnly) synchBuildStatuses(combiCs, combiCs.sha == lastSha)
+              else Future.sequence(BuildHelp.jobsTodo(combiCs, rebuild = forceRebuild).map(launchBuild(combiCs.sha, combiCs.sha == lastSha, _)))
           } yield buildRes
         })
       } yield results
