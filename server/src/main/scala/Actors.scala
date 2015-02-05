@@ -157,10 +157,13 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       implicit object jcl extends JobContextLense {
         import CommitStatusConstants._
 
+        // TODO: def prefix = s"${config.github.project}-${pull.base.ref}-" // e.g., scala-2.11.x- for PR targeting 2.11.x of user/scala
+        def prefix = config.jenkins.jobPrefix
+
         // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
         // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
-        def contextForJob(job: String): Option[String] = Some(job.replace(config.jenkins.jobPrefix, "")) // TODO: should only replace *prefix*, not just anywhere in string
-        def jobForContext(context: String): Option[String] = if (context == COMBINED) None else Some(config.jenkins.jobPrefix + context)
+        def contextForJob(job: String): Option[String] = Some(job.replace(prefix, "")) // TODO: should only replace *prefix*, not just anywhere in string
+        def jobForContext(context: String): Option[String] = if (context == COMBINED) None else Some(prefix + context)
       }
 
       // TODO: depends on PR's target (currently hardcoded to 2.11.x)
