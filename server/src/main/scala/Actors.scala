@@ -158,7 +158,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         import CommitStatusConstants._
 
         // TODO: def prefix = s"${config.github.project}-${pull.base.ref}-" // e.g., scala-2.11.x- for PR targeting 2.11.x of user/scala
-        def prefix = config.jenkins.jobPrefix
+        def prefix = if (pr > 4294) config.jenkins.jobPrefix else "scala-2.11.x-validate-"
 
         // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
         // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
