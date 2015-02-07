@@ -1,0 +1,4 @@
+#!/bin/sh
+
+chmod 0600 .travis/scabot.pem
+exec ssh -o StrictHostKeychecking=no -o CheckHostIP=no -o UserKnownHostsFile=/dev/null -i .travis/scabot.pem -- "$@"

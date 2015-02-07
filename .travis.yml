@@ -1,0 +1,20 @@
+language: scala
+script:
+  - sbt ++$TRAVIS_SCALA_VERSION compile
+scala:
+  - 2.11.5
+jdk:
+  - openjdk7
+notifications:
+  email:
+    - adriaan.moors@typesafe.com
+cache:
+  directories:
+  - $HOME/.m2/repository/
+  - $HOME/.ivy2/cache/
+  - $HOME/.sbt/cache/
+env:
+  global:
+    - GIT_SSH=.travis/ssh_scabot
+after_success:
+  - openssl aes-256-cbc -K $encrypted_046e6a226c09_key -iv $encrypted_046e6a226c09_iv -in .travis/scabot.pem.enc -out .travis/scabot.pem -d && git push --force scabot@scala-ci.typesafe.com:/home/scabot/scabot master:master
