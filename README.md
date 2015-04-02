@@ -18,8 +18,11 @@ It can be summoned (immediately!) through certain commands, posted as pull reque
   - `/rebuild $sha`: rebuild failed jobs for a given commit
   - `/synch`: make sure that commit stati are in synch with the actual builds on the [CI server](https://scala-ci.typesafe.com).
 
-## Deployment
+## Admin
+### Deploy
 Scabot runs on the CI server under the `scabot` account. We [push to deploy](../../issues/10). 
+### Restart
+Assuming you're using our [dev machine setup](https://github.com/scala/scala-jenkins-infra/blob/master/README.md#dev-machine-convenience), `ssh jenkins-master`, and `sudo /etc/init.d/scabot restart`.
 
 ## Contributing
 Yes, please!
