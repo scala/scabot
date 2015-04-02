@@ -19,10 +19,16 @@ It can be summoned (immediately!) through certain commands, posted as pull reque
   - `/synch`: make sure that commit stati are in synch with the actual builds on the [CI server](https://scala-ci.typesafe.com).
 
 ## Admin
+For ssh access to the server running the bot, this assumes you're using our [dev machine setup](https://github.com/scala/scala-jenkins-infra/blob/master/README.md#dev-machine-convenience).
+
 ### Deploy
 Scabot runs on the CI server under the `scabot` account. We [push to deploy](../../issues/10). 
-### Restart
-Assuming you're using our [dev machine setup](https://github.com/scala/scala-jenkins-infra/blob/master/README.md#dev-machine-convenience), `ssh jenkins-master`, and `sudo /etc/init.d/scabot restart`.
+
+### Logs
+`ssh scabot "less ~/logs/current"`
+
+### Restart (last resort)
+`ssh jenkins-master`, and `sudo /etc/init.d/scabot restart`.
 
 ## Contributing
 Yes, please!
