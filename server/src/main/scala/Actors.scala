@@ -55,13 +55,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     import context._
 
     // find or create actor responsible for PR #`nb`
-    def prActor(nb: Int) = child(nb.toString).getOrElse(mkPRActor(nb))
-
-    // ignore PRs owned by the kitteh
-    def mkPRActor(nb: Int): ActorRef =
-      if (config.github.user != "scala" || nb > 4267) actorOf(Props(new PullRequestActor(nb, config)), nb.toString)
-      else actorOf(Props(new NoopPullRequestActor), nb.toString)
-
+    def prActor(nb: Int) = child(nb.toString).getOrElse(actorOf(Props(new PullRequestActor(nb, config)), nb.toString))
 
     // supports messages of type ProjectMessage
     override def receive: Receive = {
