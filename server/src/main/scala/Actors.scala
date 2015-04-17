@@ -371,13 +371,15 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[List[String]]] = {
       for {
         commits <- githubApi.pullRequestCommits(pr)
-        lastSha = commits.last.sha // safe to assume commits of a pr is nonEmpty
+        lastSha  = commits.last.sha // safe to assume commits of a pr is nonEmpty
+        lastOnly = pull.title.contains("[ci: last-only]") // only test last commit when requested in PR's title (e.g., for large PRs)
         results <- Future.sequence(commits map { commit =>
           log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
             buildRes <-
               if (synchOnly) synchBuildStatuses(combiCs, combiCs.sha == lastSha)
+              else if (lastOnly && combiCs.sha != lastSha) Future.successful(List(s"Skipped ${combiCs.sha} on request"))
               else Future.sequence(BuildHelp.jobsTodo(combiCs, rebuild = forceRebuild).map(launchBuild(combiCs.sha, combiCs.sha == lastSha, _)))
           } yield buildRes
         })
