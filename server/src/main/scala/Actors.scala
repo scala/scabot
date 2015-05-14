@@ -101,7 +101,9 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     lazy val githubApi   = new GithubConnection(config.github)
     lazy val jenkinsApi  = new JenkinsConnection(config.jenkins)
 
-    lazy val pullRequest   = githubApi.pullRequest(pr)
+    // currently only used for pull.base.ref, so we only create the future once (this can never change)
+    // TODO: do a .map(pull => pull.base.ref) and refactor to clarify
+    lazy val pullCached    = githubApi.pullRequest(pr)
     def pullRequestCommits = githubApi.pullRequestCommits(pr)
     def issueComments      = githubApi.issueComments(pr)
 
@@ -147,10 +149,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     }
 
+    // requires pull.number == pr
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
       checkMilestone(pull)
       checkLGTM(pull)
-      propagateEarlierStati(pull)
+      propagateEarlierStati()
       // don't exec commands when synching, or we'll keep executing the /sync that triggered this handlePR execution
       if (!synchOnly) execCommands(pull)
       buildCommitsIfNeeded(pull, synchOnly = synchOnly)
@@ -269,14 +272,14 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       import BuildHelp._
       val postStatus = (for {
-        pull    <- pullRequest
+        pull    <- pullCached
         currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(jobName, pull)).headOption)
         newStatus = commitStatus(jobName, bs, pull)
         _       <- Future.successful(log.debug(s"New status (new? ${currentStatus != Some(newStatus)}) for $sha: $newStatus old: $currentStatus"))
         if currentStatus != Some(newStatus)
         posting <- githubApi.postStatus(sha, newStatus)
         _       <- Future.successful(log.debug(s"Posted status on $sha for $jobName $bs:\n$posting"))
-        _       <- propagateEarlierStati(pull, sha)
+        _       <- propagateEarlierStati(sha)
 //        if !(bs.queued || bs.building || bs.success)
 //        _       <- postFailureComment(pull, bs)
       } yield posting).recover {
@@ -401,7 +404,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     // propagate status of commits before the last one over to the last commit's status,
     // so that all statuses are (indirectly) considered by github when coloring the merge button green/red
-    private def propagateEarlierStati(pull: PullRequest, causeSha: String = ""): Future[List[CommitStatus]] = {
+    private def propagateEarlierStati(causeSha: String = ""): Future[List[CommitStatus]] = {
       import CommitStatusConstants._
       import BuildHelp._
 
@@ -541,7 +544,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
       def rebuildSha(sha: String) = for {
         commits <- pullRequestCommits
-        pull    <- pullRequest
+        pull    <- pullCached
         lastSha = commits.last.sha // safe to assume commits of a pr is nonEmpty
         build <- launchBuild(pull, sha, sha == lastSha, BuildHelp.mainValidationJob(pull))
       } yield build
@@ -549,14 +552,14 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       final val REBUILD_ALL = """^/rebuild""".r.unanchored
       def rebuildAll() =
         for {
-          pull     <- pullRequest
+          pull     <- pullCached
           buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
         } yield buildRes
 
       final val SYNCH = """^/sync""".r.unanchored
       def synch() =
         for {
-          pull     <- pullRequest
+          pull     <- pullCached
           synchRes <- handlePR("synchronize", pull, synchOnly = true)
         } yield synchRes
 
