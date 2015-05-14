@@ -21,7 +21,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
 
   // project actors are supervised by the github actor
-  // pull requst actors are supervised by their project actor
+  // pull request actors are supervised by their project actor
   private def projectActorName(user: String, repo: String) = s"$user-$repo"
 
   def tellProjectActor(user: String, repo: String)(msg: ProjectMessage) =
@@ -57,22 +57,28 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     // find or create actor responsible for PR #`nb`
     def prActor(nb: Int) = child(nb.toString).getOrElse(actorOf(Props(new PullRequestActor(nb, config)), nb.toString))
 
+    def monitored(pullRequest: PullRequest) = {
+      val monitor = config.github.branches(pullRequest.base.ref)
+      if (!monitor) log.warning(s"Not monitoring #${pullRequest.number} because ${pullRequest.base.ref} not in ${config.github.branches}.")
+      monitor
+    }
+
     // supports messages of type ProjectMessage
     override def receive: Receive = {
       case Synch =>
         log.info("Synching up! Bleepy-dee-bloop.")
 
         githubApi.pullRequests.foreach { prs =>
-          prs.foreach { pr => prActor(pr.number) ! PullRequestEvent("synchronize", pr.number, pr)}
+          prs.filter(monitored).foreach { pr => prActor(pr.number) ! PullRequestEvent("synchronize", pr.number, pr)}
         }
         // synch every once in a while, just in case we missed a webhook event somehow
         // TODO make timeout configurable
         context.system.scheduler.scheduleOnce(30 minutes, self, Synch) 
 
-      case ev@PullRequestEvent(_, nb, _) =>
+      case ev@PullRequestEvent(_, nb, pull_request) if monitored(pull_request) =>
         prActor(nb) ! ev
 
-      case PullRequestReviewCommentEvent("created", pull_request, comment, _) =>
+      case PullRequestReviewCommentEvent("created", pull_request, comment, _) if monitored(pull_request) =>
         prActor(pull_request.number) ! comment
 
       case IssueCommentEvent("created", issue, comment, _) =>
@@ -92,8 +98,14 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
   }
 
   class PullRequestActor(pr: Int, config: Config) extends Actor with ActorLogging {
-    lazy val githubApi  = new GithubConnection(config.github)
-    lazy val jenkinsApi = new JenkinsConnection(config.jenkins)
+    lazy val githubApi   = new GithubConnection(config.github)
+    lazy val jenkinsApi  = new JenkinsConnection(config.jenkins)
+
+    // currently only used for pull.base.ref, so we only create the future once (this can never change)
+    // TODO: do a .map(pull => pull.base.ref) and refactor to clarify
+    lazy val pullCached    = githubApi.pullRequest(pr)
+    def pullRequestCommits = githubApi.pullRequestCommits(pr)
+    def issueComments      = githubApi.issueComments(pr)
 
     private var lastSynchronized: Date = None
 
@@ -137,10 +149,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     }
 
+    // requires pull.number == pr
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
       checkMilestone(pull)
       checkLGTM(pull)
-      propagateEarlierStati(pull)
+      propagateEarlierStati()
       // don't exec commands when synching, or we'll keep executing the /sync that triggered this handlePR execution
       if (!synchOnly) execCommands(pull)
       buildCommitsIfNeeded(pull, synchOnly = synchOnly)
@@ -149,22 +162,24 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     object BuildHelp {
       implicit object jcl extends JobContextLense {
-        import CommitStatusConstants._
-
-        // TODO: def prefix = s"${config.github.project}-${pull.base.ref}-" // e.g., scala-2.11.x- for PR targeting 2.11.x of user/scala
-        def prefix = if (pr > 4294) config.jenkins.jobPrefix else "scala-2.11.x-validate-"
+        // e.g., scala-2.11.x- for PR targeting 2.11.x of s"$user/scala" (for any user)
+        def prefix(pull: PullRequest) = s"${config.github.repo}-${pull.base.ref}-"
 
         // TODO: as we add more analyses to PR validation, update this predicate to single out jenkins jobs
         // NOTE: config.jenkins.job spawns other jobs, which we don't know about here, but still want to retry on /rebuild
-        def contextForJob(job: String): Option[String] = Some(job.replace(prefix, "")) // TODO: should only replace *prefix*, not just anywhere in string
-        def jobForContext(context: String): Option[String] = if (jenkinsContext(context)) Some(prefix + context) else None
+        def contextForJob(job: String, pull: PullRequest): Option[String] =
+          Some(job.replace(prefix(pull), "")) // TODO: should only replace *prefix*, not just anywhere in string
+
+        def jobForContext(context: String, pull: PullRequest): Option[String] =
+          if (jenkinsContext(context)) Some(prefix(pull) + context)
+          else None
       }
 
       // TODO: extend (cla checker,...)
       def jenkinsContext(context: String) = context != CommitStatusConstants.COMBINED
 
       // TODO: depends on PR's target (currently hardcoded to 2.11.x)
-      def mainValidationJob = config.jenkins.job
+      def mainValidationJob(pull: PullRequest) = jcl.prefix(pull) + config.jenkins.jobSuffix
 
       // TODO: is this necessary? just to be sure, as it looks like github refuses non-https links
       def urlForBuild(bs: BuildStatus) = Some(bs.url.map(_.replace("http://", "https://")).getOrElse(""))
@@ -174,11 +189,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         else if (bs.success) CommitStatusConstants.SUCCESS
         else CommitStatusConstants.FAILURE
 
-      def contextForJob(jobName: String): Option[String] = implicitly[JobContextLense].contextForJob(jobName)
+      def contextForJob(jobName: String, pull: PullRequest): Option[String] = implicitly[JobContextLense].contextForJob(jobName, pull)
 
-      def commitStatus(jobName: String, bs: BuildStatus): CommitStatus = {
+      def commitStatus(jobName: String, bs: BuildStatus, pull: PullRequest): CommitStatus = {
         val advice = if (bs.failed) " Say /rebuild on PR to retry *spurious* failure." else ""
-        commitStatusForContext(contextForJob(jobName), bs, advice)
+        commitStatusForContext(contextForJob(jobName, pull), bs, advice)
       }
 
       def commitStatusForContext(context: Option[String], bs: BuildStatus, advice: String): CommitStatus = {
@@ -205,17 +220,18 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       // result is a subset of (config.jenkins.job and the contexts found in combiCommitStatus.statuses that are jenkins jobs)
       // if not rebuilding or gathering all jobs, this subset is either empty or the main job (if no statuses were found for it)
       // unless gatherAllJobs, the result only includes jobs whose most recent status was a failure
-      def jobsTodo(combiCommitStatus: CombiCommitStatus, rebuild: Boolean): List[String] = {
+      def jobsTodo(pull: PullRequest, combiCommitStatus: CombiCommitStatus, rebuild: Boolean): List[String] = {
         // TODO: filter out aborted stati?
-        // TODO: for pending jobs, check that they are indeed pending?
+        // TODO: for pending jobs, check that they are indeed pending!
         def considerStati(stati: List[CommitStatus]): Boolean =
           if (rebuild) stati.headOption.forall(_.failure) else stati.isEmpty
 
-        val shouldConsider = Map(mainValidationJob -> true) ++: combiCommitStatus.statuses.groupBy(_.jobName).collect {
+        val mainJobForPull = mainValidationJob(pull)
+        val shouldConsider = Map(mainJobForPull -> true) ++: combiCommitStatus.statuses.groupBy(_.jobName(pull)).collect {
           case (Some(job), stati) => (job, considerStati(stati))
         }
 
-        log.debug(s"shouldConsider for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, consider main job: ${shouldConsider.get(mainValidationJob)}): $shouldConsider")
+        log.debug(s"shouldConsider for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, consider main job: ${shouldConsider.get(mainJobForPull)}): $shouldConsider")
 
         val allToConsider = shouldConsider.collect{case (job, true) => job}
 
@@ -226,14 +242,14 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
         val jobs =
 //        if (rebuild && nonMainToBuild.nonEmpty) nonMainToBuild.toList
-          if (shouldConsider(mainValidationJob)) List(mainValidationJob)
+          if (shouldConsider(mainJobForPull)) List(mainJobForPull)
           else Nil
 
         val jobMsg =
           if (jobs.isEmpty) "No need to build"
           else s"Found jobs ${jobs.mkString(", ")} TODO"
 
-        log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName)}")
+        log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName(pull))}")
 
         jobs
       }
@@ -255,15 +271,15 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         }
 
       import BuildHelp._
-      val newStatus = commitStatus(jobName, bs)
       val postStatus = (for {
-        currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(jobName)).headOption)
+        pull    <- pullCached
+        currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(jobName, pull)).headOption)
+        newStatus = commitStatus(jobName, bs, pull)
         _       <- Future.successful(log.debug(s"New status (new? ${currentStatus != Some(newStatus)}) for $sha: $newStatus old: $currentStatus"))
         if currentStatus != Some(newStatus)
         posting <- githubApi.postStatus(sha, newStatus)
         _       <- Future.successful(log.debug(s"Posted status on $sha for $jobName $bs:\n$posting"))
-        pull    <- githubApi.pullRequest(pr)
-        _       <- propagateEarlierStati(pull, sha)
+        _       <- propagateEarlierStati(sha)
 //        if !(bs.queued || bs.building || bs.success)
 //        _       <- postFailureComment(pull, bs)
       } yield posting).recover {
@@ -275,11 +291,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
 
-    private def launchBuild(sha: String, lastCommit: Boolean, job: String = BuildHelp.mainValidationJob): Future[String] = {
+    private def launchBuild(pull: PullRequest, sha: String, lastCommit: Boolean, job: String): Future[String] = {
       import BuildHelp._
 
       val launcher = for {
-        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(jobParams(sha, lastCommit), None)))
+        posting  <- githubApi.postStatus(sha, commitStatus(job, new QueuedBuildStatus(jobParams(sha, lastCommit), None), pull))
         buildRes <- jenkinsApi.buildJob(job, jobParams(sha, lastCommit))
         _        <- Future.successful(log.info(s"Launched $job for $sha: $buildRes"))
       } yield buildRes
@@ -289,7 +305,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
     // synch contexts assumed to correspond to jenkins jobs with the most recent result of the corresponding build of the jenkins job specified by the context
-    private def synchBuildStatuses(combiCommitStatus: CombiCommitStatus, lastCommit: Boolean): Future[List[String]] = {
+    private def synchBuildStatuses(pull: PullRequest, combiCommitStatus: CombiCommitStatus, lastCommit: Boolean): Future[List[String]] = {
       import BuildHelp._
 
       case class GitHubReport(state: String, url: Option[String])
@@ -330,11 +346,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         else Some(commitStatusForContext(Some(context), bs, ""))
 
       def synchMostRecent(context: String, report: GitHubReport) = for {
-        job <- Future { BuildHelp.jcl.jobForContext(context).get }
-        bs <- checkMostRecent(job)
+        job  <- Future { BuildHelp.jcl.jobForContext(context, pull).get }
+        bs   <- checkMostRecent(job)
       } yield
         if (toReport(bs) == report) None
-        else Some(commitStatus(job, bs))
+        else Some(commitStatus(job, bs, pull))
 
 
       val syncher = Future.sequence(githubReports.toList.map { case (context, report) =>
@@ -370,7 +386,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
     private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[List[String]]] = {
       for {
-        commits <- githubApi.pullRequestCommits(pr)
+        commits <- pullRequestCommits
         lastSha  = commits.last.sha // safe to assume commits of a pr is nonEmpty
         lastOnly = pull.title.contains("[ci: last-only]") // only test last commit when requested in PR's title (e.g., for large PRs)
         results <- Future.sequence(commits map { commit =>
@@ -378,18 +394,17 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
             buildRes <-
-              if (synchOnly) synchBuildStatuses(combiCs, combiCs.sha == lastSha)
+              if (synchOnly) synchBuildStatuses(pull, combiCs, combiCs.sha == lastSha)
               else if (lastOnly && combiCs.sha != lastSha) Future.successful(List(s"Skipped ${combiCs.sha} on request"))
-              else Future.sequence(BuildHelp.jobsTodo(combiCs, rebuild = forceRebuild).map(launchBuild(combiCs.sha, combiCs.sha == lastSha, _)))
+              else Future.sequence(BuildHelp.jobsTodo(pull, combiCs, rebuild = forceRebuild).map(launchBuild(pull, combiCs.sha, combiCs.sha == lastSha, _)))
           } yield buildRes
         })
       } yield results
     }
 
-
     // propagate status of commits before the last one over to the last commit's status,
     // so that all statuses are (indirectly) considered by github when coloring the merge button green/red
-    private def propagateEarlierStati(pull: PullRequest, causeSha: String = ""): Future[List[CommitStatus]] = {
+    private def propagateEarlierStati(causeSha: String = ""): Future[List[CommitStatus]] = {
       import CommitStatusConstants._
       import BuildHelp._
 
@@ -413,7 +428,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       }
 
       (for {
-        commits       <- githubApi.pullRequestCommits(pr)
+        commits       <- pullRequestCommits
 
         lastSha = commits.lastOption.map(_.sha).getOrElse("")
         if commits.nonEmpty && commits.tail.nonEmpty && causeSha != lastSha // ignore if caused by an update to the last commit
@@ -460,11 +475,12 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     private def checkLGTM(pull: PullRequest) = for {
     // purposefully only at start of line to avoid conditional LGTMs
-      hasLGTM <- githubApi.issueComments(pr).map(_.exists(Commands.isLGTM))
+      hasLGTM <- issueComments.map(_.exists(Commands.isLGTM))
     } yield synchReviewedLabel(hasLGTM)
-    
+
+
     private def execCommands(pullRequest: PullRequest) = for {
-      comments       <- githubApi.issueComments(pr)
+      comments       <- issueComments
       commentResults <- Future.sequence(comments.map(handleComment))
     } yield commentResults
 
@@ -527,29 +543,30 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
       def rebuildSha(sha: String) = for {
-        commits <- githubApi.pullRequestCommits(pr)
+        commits <- pullRequestCommits
+        pull    <- pullCached
         lastSha = commits.last.sha // safe to assume commits of a pr is nonEmpty
-        build <- launchBuild(sha, sha == lastSha)
+        build <- launchBuild(pull, sha, sha == lastSha, BuildHelp.mainValidationJob(pull))
       } yield build
 
       final val REBUILD_ALL = """^/rebuild""".r.unanchored
       def rebuildAll() =
         for {
-          pull     <- githubApi.pullRequest(pr)
+          pull     <- pullCached
           buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
         } yield buildRes
 
       final val SYNCH = """^/sync""".r.unanchored
       def synch() =
         for {
-          pull     <- githubApi.pullRequest(pr)
+          pull     <- pullCached
           synchRes <- handlePR("synchronize", pull, synchOnly = true)
         } yield synchRes
 
       final val NOTHINGTOSEEHERE = """^/nothingtoseehere""".r.unanchored
       def nothingToSeeHere() =
         for {
-          commits <- githubApi.pullRequestCommits(pr)
+          commits <- pullRequestCommits
           results <- Future.sequence(commits map { commit =>
             for {
               combiCs <- fetchCommitStatus(commit.sha)

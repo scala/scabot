@@ -8,8 +8,11 @@ trait Configuration { self: Core =>
   lazy val configs: Map[String, Config] = parseConfig(new java.io.File(sys.props("scabot.config.file")))
 
   object Config {
-    case class Github(user: String, repo: String, host: String, token: String)
-    case class Jenkins(job: String, host: String, user: String, token: String, jobPrefix: String)
+    // only PRs targeting a branch in `branches` will be monitored
+    case class Github(user: String, repo: String, branches: Set[String], host: String, token: String)
+    // the launched job will be BuildHelp.mainValidationJob(pull),
+    // for example, if `jobSuffix` == "validate-main", we'll launch "scala-2.11.x-validate-main" for repo "scala", PR target "2.11.x"
+    case class Jenkins(jobSuffix: String, host: String, user: String, token: String)
   }
   import Config._
   case class Config(github: Github, jenkins: Jenkins)
@@ -39,24 +42,24 @@ trait Configuration { self: Core =>
 
     def jenkins(c: ConfigObject): Option[Jenkins] =
       for {
-        job   <- configString(c.get("job"))
-        jobPrefix <- configString(c.get("jobPrefix"))
+        jobSuffix   <- configString(c.get("jobSuffix"))
         host  <- configString(c.get("host"))
         user  <- configString(c.get("user"))
         token <- configString(c.get("token"))
-      } yield Jenkins(job, host, user, token, jobPrefix)
+      } yield Jenkins(jobSuffix, host, user, token)
 
     def github(c: ConfigObject): Option[Github] =
       for {
         user  <- configString(c.get("user"))
         repo  <- configString(c.get("repo"))
+        branches  <- configStringList(c.get("branches"))
         host  <- configString(c.get("host"))
         token <- configString(c.get("token"))
-      } yield Github(user, repo, host, token)
+      } yield Github(user, repo, branches.toSet, host, token)
 
     def c2c(c: ConfigObject): Option[Config] =
       for {
-      // Jenkins Config
+        // Jenkins Config
         jenkinsConf <- configObj(c.get("jenkins"))
         jenkinsObj <- jenkins(jenkinsConf)
         // Github config

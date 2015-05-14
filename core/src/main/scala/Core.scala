@@ -29,6 +29,8 @@ trait Core extends Util {
   // marker for messages understood by PullRequestActor
   trait PRMessage
 
+  type PullRequest
+
   // see also scala-jenkins-infra
   final val PARAM_REPO_USER = "repo_user"
   final val PARAM_REPO_NAME = "repo_name"
@@ -37,8 +39,8 @@ trait Core extends Util {
   final val PARAM_LAST      = "_scabot_last" // TODO: temporary until we run real integration on the actual merge commit
 
   trait JobContextLense {
-    def contextForJob(job: String): Option[String]
-    def jobForContext(context: String): Option[String]
+    def contextForJob(job: String, pull: PullRequest): Option[String]
+    def jobForContext(context: String, pull: PullRequest): Option[String]
   }
 }
 
