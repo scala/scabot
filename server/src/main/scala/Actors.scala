@@ -92,8 +92,12 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
   }
 
   class PullRequestActor(pr: Int, config: Config) extends Actor with ActorLogging {
-    lazy val githubApi  = new GithubConnection(config.github)
-    lazy val jenkinsApi = new JenkinsConnection(config.jenkins)
+    lazy val githubApi   = new GithubConnection(config.github)
+    lazy val jenkinsApi  = new JenkinsConnection(config.jenkins)
+
+    lazy val pullRequest   = githubApi.pullRequest(pr)
+    def pullRequestCommits = githubApi.pullRequestCommits(pr)
+    def issueComments      = githubApi.issueComments(pr)
 
     private var lastSynchronized: Date = None
 
@@ -262,7 +266,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         if currentStatus != Some(newStatus)
         posting <- githubApi.postStatus(sha, newStatus)
         _       <- Future.successful(log.debug(s"Posted status on $sha for $jobName $bs:\n$posting"))
-        pull    <- githubApi.pullRequest(pr)
+        pull    <- pullRequest
         _       <- propagateEarlierStati(pull, sha)
 //        if !(bs.queued || bs.building || bs.success)
 //        _       <- postFailureComment(pull, bs)
@@ -273,7 +277,6 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       postStatus onFailure { case e => log.warning(s"handleJobState($jobName, ${bs.number}, $sha) failed: $e") }
       postStatus
     }
-
 
     private def launchBuild(sha: String, lastCommit: Boolean, job: String = BuildHelp.mainValidationJob): Future[String] = {
       import BuildHelp._
@@ -370,7 +373,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
     private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[List[String]]] = {
       for {
-        commits <- githubApi.pullRequestCommits(pr)
+        commits <- pullRequestCommits
         lastSha  = commits.last.sha // safe to assume commits of a pr is nonEmpty
         lastOnly = pull.title.contains("[ci: last-only]") // only test last commit when requested in PR's title (e.g., for large PRs)
         results <- Future.sequence(commits map { commit =>
@@ -385,7 +388,6 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         })
       } yield results
     }
-
 
     // propagate status of commits before the last one over to the last commit's status,
     // so that all statuses are (indirectly) considered by github when coloring the merge button green/red
@@ -413,7 +415,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       }
 
       (for {
-        commits       <- githubApi.pullRequestCommits(pr)
+        commits       <- pullRequestCommits
 
         lastSha = commits.lastOption.map(_.sha).getOrElse("")
         if commits.nonEmpty && commits.tail.nonEmpty && causeSha != lastSha // ignore if caused by an update to the last commit
@@ -460,11 +462,12 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     private def checkLGTM(pull: PullRequest) = for {
     // purposefully only at start of line to avoid conditional LGTMs
-      hasLGTM <- githubApi.issueComments(pr).map(_.exists(Commands.isLGTM))
+      hasLGTM <- issueComments.map(_.exists(Commands.isLGTM))
     } yield synchReviewedLabel(hasLGTM)
-    
+
+
     private def execCommands(pullRequest: PullRequest) = for {
-      comments       <- githubApi.issueComments(pr)
+      comments       <- issueComments
       commentResults <- Future.sequence(comments.map(handleComment))
     } yield commentResults
 
@@ -527,7 +530,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
       def rebuildSha(sha: String) = for {
-        commits <- githubApi.pullRequestCommits(pr)
+        commits <- pullRequestCommits
         lastSha = commits.last.sha // safe to assume commits of a pr is nonEmpty
         build <- launchBuild(sha, sha == lastSha)
       } yield build
@@ -535,21 +538,21 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       final val REBUILD_ALL = """^/rebuild""".r.unanchored
       def rebuildAll() =
         for {
-          pull     <- githubApi.pullRequest(pr)
+          pull     <- pullRequest
           buildRes <- buildCommitsIfNeeded(pull, forceRebuild = true)
         } yield buildRes
 
       final val SYNCH = """^/sync""".r.unanchored
       def synch() =
         for {
-          pull     <- githubApi.pullRequest(pr)
+          pull     <- pullRequest
           synchRes <- handlePR("synchronize", pull, synchOnly = true)
         } yield synchRes
 
       final val NOTHINGTOSEEHERE = """^/nothingtoseehere""".r.unanchored
       def nothingToSeeHere() =
         for {
-          commits <- githubApi.pullRequestCommits(pr)
+          commits <- pullRequestCommits
           results <- Future.sequence(commits map { commit =>
             for {
               combiCs <- fetchCommitStatus(commit.sha)
