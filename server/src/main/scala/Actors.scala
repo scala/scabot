@@ -153,7 +153,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
       checkMilestone(pull)
       checkLGTM(pull)
-      propagateEarlierStati()
+      propagateEarlierStati(pull)
       // don't exec commands when synching, or we'll keep executing the /sync that triggered this handlePR execution
       if (!synchOnly) execCommands(pull)
       buildCommitsIfNeeded(pull, synchOnly = synchOnly)
@@ -279,7 +279,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         if currentStatus != Some(newStatus)
         posting <- githubApi.postStatus(sha, newStatus)
         _       <- Future.successful(log.debug(s"Posted status on $sha for $jobName $bs:\n$posting"))
-        _       <- propagateEarlierStati(sha)
+        _       <- propagateEarlierStati(pull, sha)
 //        if !(bs.queued || bs.building || bs.success)
 //        _       <- postFailureComment(pull, bs)
       } yield posting).recover {
@@ -383,19 +383,20 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       fetcher
     }
 
+    private def lastOnly(pullTitle: String) = config.github.lastCommitOnly || pullTitle.contains("[ci: last-only]") // only test last commit when requested in PR's title (e.g., for large PRs)
+
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
     private def buildCommitsIfNeeded(pull: PullRequest, forceRebuild: Boolean = false, synchOnly: Boolean = false): Future[List[List[String]]] = {
       for {
         commits <- pullRequestCommits
         lastSha  = commits.last.sha // safe to assume commits of a pr is nonEmpty
-        lastOnly = pull.title.contains("[ci: last-only]") // only test last commit when requested in PR's title (e.g., for large PRs)
         results <- Future.sequence(commits map { commit =>
           log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
             buildRes <-
               if (synchOnly) synchBuildStatuses(pull, combiCs, combiCs.sha == lastSha)
-              else if (lastOnly && combiCs.sha != lastSha) Future.successful(List(s"Skipped ${combiCs.sha} on request"))
+              else if (lastOnly(pull.title) && combiCs.sha != lastSha) Future.successful(List(s"Skipped ${combiCs.sha} on request"))
               else Future.sequence(BuildHelp.jobsTodo(pull, combiCs, rebuild = forceRebuild).map(launchBuild(pull, combiCs.sha, combiCs.sha == lastSha, _)))
           } yield buildRes
         })
@@ -404,7 +405,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     // propagate status of commits before the last one over to the last commit's status,
     // so that all statuses are (indirectly) considered by github when coloring the merge button green/red
-    private def propagateEarlierStati(causeSha: String = ""): Future[List[CommitStatus]] = {
+    private def propagateEarlierStati(pull: PullRequest, causeSha: String = ""): Future[List[CommitStatus]] = {
       import CommitStatusConstants._
       import BuildHelp._
 
@@ -427,7 +428,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         } yield last :: earlier
       }
 
-      (for {
+      if (lastOnly(pull.title)) Future.successful(Nil)
+      else (for {
         commits       <- pullRequestCommits
 
         lastSha = commits.lastOption.map(_.sha).getOrElse("")
