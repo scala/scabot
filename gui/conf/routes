@@ -1,4 +1,4 @@
-POST    /jenkins/jenkins-event    controllers.Scabot.jenkins
-POST    /github/github-event      controllers.Scabot.github
+POST    /jenkins                  controllers.Scabot.jenkins
+POST    /github                   controllers.Scabot.github
 
 GET     /                         controllers.Scabot.index
