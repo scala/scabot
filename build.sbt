@@ -4,7 +4,7 @@ name := "scabot"
 
 organization in ThisBuild := "com.typesafe"
 version      in ThisBuild := "0.1.0"
-scalaVersion in ThisBuild := "2.11.5"
+scalaVersion in ThisBuild := "2.11.6"
 
 scalacOptions in ThisBuild ++=
   Seq("-feature", "-deprecation", "-Xfatal-warnings")
