@@ -3,10 +3,9 @@ script:
   - sbt ++$TRAVIS_SCALA_VERSION compile
 scala:
   - 2.11.6
-# staying with Java 7 here for now since scala-ci happens to be
-# on 7 for now (as of June 2015)
+# we actually build and run on openjdk8 in production, see scala-jenkins-infra
 jdk:
-  - openjdk7
+  - oraclejdk8
 notifications:
   email:
     - adriaan.moors@typesafe.com
