@@ -2,19 +2,8 @@ package scabot
 package jenkins
 
 import akka.event.Logging
-import spray.routing.Directives
 
-trait JenkinsService extends core.Core with JenkinsApi with Directives { self: core.HttpClient with core.Configuration =>
-  import spray.httpx.SprayJsonSupport._
-
-  // handle marshalling & routing between http clients and ServiceActor
-  override def serviceRoute = super.serviceRoute ~ path("jenkins") {
-    post {
-      logRequestResponse(("jenkins-event"/*, Logging.InfoLevel*/)) {
-        handleWith(jenkinsEvent)
-      }
-    }
-  }
+trait JenkinsService extends core.Core with JenkinsApi { self: core.HttpClient with core.Configuration =>
 
   def jenkinsEvent(jobState: JobState): String = jobState match {
     case JobState(name, _, BuildState(number, phase, parameters, scm, result, full_url, log)) =>

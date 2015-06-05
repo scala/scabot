@@ -8,8 +8,6 @@ import spray.can.Http
 import spray.client.pipelining._
 import spray.http.{HttpCredentials, HttpResponse}
 import spray.httpx.unmarshalling._
-import spray.routing.Route
-import spray.routing.Directives.reject
 
 import scala.concurrent.{Promise, Future, ExecutionContext}
 
@@ -18,8 +16,6 @@ trait Core extends Util {
 
   // needed for marshalling implicits for the json api
   implicit def ec: ExecutionContext = system.dispatcher
-
-  def serviceRoute: Route = reject
 
   def tellProjectActor(user: String, repo: String)(msg: ProjectMessage): Unit
 
