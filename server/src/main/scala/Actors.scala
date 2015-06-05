@@ -16,7 +16,7 @@ import scala.util.Try
  * Created by adriaan on 1/15/15.
  */
 trait Actors extends DynamoDb { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi =>
-  implicit lazy val system: ActorSystem = ActorSystem("scabot")
+  def system: ActorSystem
 
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
 
