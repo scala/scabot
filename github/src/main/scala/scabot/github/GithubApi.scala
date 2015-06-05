@@ -1,3 +1,7 @@
+// relevant doc:
+// * https://developer.github.com/guides/getting-started/
+// * https://developer.github.com/v3/
+
 package scabot
 package github
 
