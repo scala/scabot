@@ -10,6 +10,7 @@ jdk:
 notifications:
   email:
     - adriaan.moors@typesafe.com
+    - seth@tisue.net
 cache:
   directories:
   - $HOME/.m2/repository/
