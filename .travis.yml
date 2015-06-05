@@ -3,6 +3,8 @@ script:
   - sbt ++$TRAVIS_SCALA_VERSION compile
 scala:
   - 2.11.6
+# staying with Java 7 here for now since scala-ci happens to be
+# on 7 for now (as of June 2015)
 jdk:
   - openjdk7
 notifications:
