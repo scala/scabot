@@ -41,7 +41,7 @@ trait Configuration { self: Core =>
 
     def configStringList(c: ConfigValue): Option[Seq[String]] =
       configList(c) map { x =>
-        x.iterator.asScala flatMap configString toSeq
+        x.iterator.asScala.flatMap(configString).toSeq
       }
 
     def jenkins(c: ConfigObject): Option[Jenkins] =

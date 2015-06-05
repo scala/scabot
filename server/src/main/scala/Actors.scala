@@ -73,7 +73,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         }
         // synch every once in a while, just in case we missed a webhook event somehow
         // TODO make timeout configurable
-        context.system.scheduler.scheduleOnce(30 minutes, self, Synch) 
+        context.system.scheduler.scheduleOnce(30.minutes, self, Synch)
 
       case ev@PullRequestEvent(_, nb, pull_request) if monitored(pull_request) =>
         prActor(nb) ! ev
@@ -410,7 +410,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       import BuildHelp._
 
       def postLast(lastSha: String, desc: String, state: String, lastStss: List[CommitStatus]) =
-        for { _ <- Future.successful()
+        for { _ <- Future.successful(())
           if ! lastStss.exists(st => st.state == state && st.description == Some(desc))
           res <- githubApi.postStatus(lastSha, combiStatus(state, desc)) } yield res
 

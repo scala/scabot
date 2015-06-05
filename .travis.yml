@@ -2,12 +2,15 @@ language: scala
 script:
   - sbt ++$TRAVIS_SCALA_VERSION compile
 scala:
-  - 2.11.5
+  - 2.11.6
+# staying with Java 7 here for now since scala-ci happens to be
+# on 7 for now (as of June 2015)
 jdk:
   - openjdk7
 notifications:
   email:
     - adriaan.moors@typesafe.com
+    - seth@tisue.net
 cache:
   directories:
   - $HOME/.m2/repository/
