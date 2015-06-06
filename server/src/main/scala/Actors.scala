@@ -15,7 +15,7 @@ import scala.util.Try
 /**
  * Created by adriaan on 1/15/15.
  */
-trait Actors extends DynamoDb { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi =>
+trait Actors extends DynamoDb { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi with typesafe.TypesafeApi =>
   def system: ActorSystem
 
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
@@ -100,6 +100,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
   class PullRequestActor(pr: Int, config: Config) extends Actor with ActorLogging {
     lazy val githubApi   = new GithubConnection(config.github)
     lazy val jenkinsApi  = new JenkinsConnection(config.jenkins)
+    lazy val typesafeApi = new TypesafeConnection()
 
     // currently only used for pull.base.ref, so we only create the future once (this can never change)
     // TODO: do a .map(pull => pull.base.ref) and refactor to clarify
@@ -158,6 +159,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     // requires pull.number == pr
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
+      checkCLA(pull)
       checkMilestone(pull)
       checkLGTM(pull)
       propagateEarlierStati(pull)
@@ -208,6 +210,17 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       def combiStatus(state: String, msg: String): CommitStatus =
         CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
+
+      def claStatus(signed: Option[Boolean], user: String): CommitStatus = {
+        val url = s"https://typesafe.com/contribute/cla/scala/check/$user"
+        val (state, msg) = signed match {
+          case None        => (CommitStatusConstants.PENDING, s"Checking whether @$user signed the Scala CLA.")
+          case Some(true)  => (CommitStatusConstants.SUCCESS, s"@$user signed the Scala CLA!")
+          case Some(false) => (CommitStatusConstants.FAILURE, s"@$user has not yet signed the Scala CLA!")
+        }
+        CommitStatus(state, Some(CommitStatusConstants.CLA), description = Some(msg.take(140)), target_url = Some(url))
+      }
+
 
       def jobParams(sha: String, lastCommit: Boolean): Map[String, String] = {
         // TODO: temporary until we run real integration on the actual merge commit
@@ -481,6 +494,29 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       hasLGTM <- issueComments.map(_.exists(Commands.isLGTM))
     } yield synchReviewedLabel(hasLGTM)
 
+    // CLA
+    // last commit has successful most recent status under the CLA context
+    private def successfulCLA(pull: PullRequest, last: String) = for {
+      lastStatus <- fetchCommitStatus(last)
+      claStatus  <- Future { lastStatus(CommitStatusConstants.CLA).get.head }
+      if claStatus.success
+    } yield claStatus
+
+    // user signed CLA -- update commit status
+    private def signedCLA(pull: PullRequest, last: String) = {
+      val user = pull.user.login
+
+      for {
+        pending   <- githubApi.postStatus(last, BuildHelp.claStatus(None, user))
+        claRecord <- typesafeApi.checkCla(user)
+        res       <- githubApi.postStatus(last, BuildHelp.claStatus(Some(claRecord.signed), user))
+      } yield res
+    }
+
+    private def checkCLA(pull: PullRequest) = for {
+      last  <- lastSha
+      res   <- successfulCLA(pull, last) fallbackTo signedCLA(pull, last)
+    } yield res
 
     // commands
     private def execCommands(pullRequest: PullRequest) = for {
