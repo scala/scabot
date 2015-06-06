@@ -159,7 +159,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     // requires pull.number == pr
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
-      checkCLA(pull)
+      // TODO: make configurable
+      if (config.github.user == "scala") checkCLA(pull)
       checkMilestone(pull)
       checkLGTM(pull)
       propagateEarlierStati(pull)
@@ -211,13 +212,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       def combiStatus(state: String, msg: String): CommitStatus =
         CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
 
-      def claStatus(signed: Option[Boolean], user: String): CommitStatus = {
-        val checkUrl = s"https://typesafe.com/contribute/cla/scala/check/$user"
-        val signUrl  = "https://www.typesafe.com/contribute/cla/scala"
+      def claStatus(signed: Option[Boolean], user: String, claKind: String, checkUrl: String, signUrl: String): CommitStatus = {
         val (state, msg, url) = signed match {
-          case None        => (CommitStatusConstants.PENDING, s"Checking whether @$user signed the Scala CLA.", checkUrl)
-          case Some(true)  => (CommitStatusConstants.SUCCESS, s"@$user signed the Scala CLA. Thanks!", checkUrl)
-          case Some(false) => (CommitStatusConstants.FAILURE, s"@$user, please sign the Scala CLA by clicking on 'Details' -->", signUrl)
+          case None        => (CommitStatusConstants.PENDING, s"Checking whether @$user signed the $claKind CLA.", checkUrl)
+          case Some(true)  => (CommitStatusConstants.SUCCESS, s"@$user signed the $claKind CLA. Thanks!", checkUrl)
+          case Some(false) => (CommitStatusConstants.FAILURE, s"@$user, please sign the $claKind CLA by clicking on 'Details' -->", signUrl)
         }
         CommitStatus(state, Some(CommitStatusConstants.CLA), description = Some(msg.take(140)), target_url = Some(url))
       }
@@ -506,11 +505,15 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     // user signed CLA -- update commit status
     private def signedCLA(pull: PullRequest, last: String) = {
       val user = pull.user.login
+      // TODO make these configurable:
+      val signUrl  = "https://www.typesafe.com/contribute/cla/scala"
+      val checkUrl = s"$signUrl/check/$user"
+      val claKind  = "Scala"
 
       for {
-        pending   <- githubApi.postStatus(last, BuildHelp.claStatus(None, user))
+        pending   <- githubApi.postStatus(last, BuildHelp.claStatus(None, user, claKind, checkUrl, signUrl))
         claRecord <- typesafeApi.checkCla(user)
-        res       <- githubApi.postStatus(last, BuildHelp.claStatus(Some(claRecord.signed), user))
+        res       <- githubApi.postStatus(last, BuildHelp.claStatus(Some(claRecord.signed), user, claKind, checkUrl, signUrl))
       } yield res
     }
 
