@@ -5,4 +5,4 @@ def run(cmd)
   exit($?.exitstatus) unless system "umask 002 && #{cmd}"
 end
 
-run "sbt stage"
+run "scripts/stage"
