@@ -6,7 +6,7 @@ import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 trait TypesafeApi extends TypesafeApiTypes with DefaultJsonProtocol with TypesafeApiActions { self: core.Core with core.HttpClient with core.Configuration => }
 
 trait TypesafeApiTypes { self: core.Core with core.Configuration =>
-  case class CLARecord(user: String, signed: Boolean, version: String, currentVersion: String)
+  case class CLARecord(user: String, signed: Boolean, version: Option[String], currentVersion: String)
 }
 
 trait TypesafeJsonProtocol extends TypesafeApiTypes with DefaultJsonProtocol { self: core.Core with core.Configuration =>
