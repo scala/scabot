@@ -15,7 +15,7 @@ import scala.util.Try
 /**
  * Created by adriaan on 1/15/15.
  */
-trait Actors extends DynamoDb { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi =>
+trait Actors extends DynamoDb { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi with typesafe.TypesafeApi =>
   def system: ActorSystem
 
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
@@ -100,12 +100,20 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
   class PullRequestActor(pr: Int, config: Config) extends Actor with ActorLogging {
     lazy val githubApi   = new GithubConnection(config.github)
     lazy val jenkinsApi  = new JenkinsConnection(config.jenkins)
+    lazy val typesafeApi = new TypesafeConnection()
 
     // currently only used for pull.base.ref, so we only create the future once (this can never change)
     // TODO: do a .map(pull => pull.base.ref) and refactor to clarify
-    lazy val pullCached    = githubApi.pullRequest(pr)
-    def pullRequestCommits = githubApi.pullRequestCommits(pr)
-    def issueComments      = githubApi.issueComments(pr)
+    private lazy val pullCached    = githubApi.pullRequest(pr)
+    private def pullRequestCommits = githubApi.pullRequestCommits(pr)
+    private def lastSha            = pullRequestCommits map (_.last.sha)
+    private def issueComments      = githubApi.issueComments(pr)
+
+    private def fetchCommitStatus(sha: String) = {
+      val fetcher = githubApi.commitStatus(sha)
+      fetcher.onFailure { case e => log.warning(s"Couldn't get status for ${sha}: $e")}
+      fetcher
+    }
 
     private var lastSynchronized: Date = None
 
@@ -151,6 +159,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     // requires pull.number == pr
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
+      checkCLA(pull)
       checkMilestone(pull)
       checkLGTM(pull)
       propagateEarlierStati(pull)
@@ -171,12 +180,9 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           Some(job.replace(prefix(pull), "")) // TODO: should only replace *prefix*, not just anywhere in string
 
         def jobForContext(context: String, pull: PullRequest): Option[String] =
-          if (jenkinsContext(context)) Some(prefix(pull) + context)
+          if (CommitStatusConstants.jenkinsContext(context)) Some(prefix(pull) + context)
           else None
       }
-
-      // TODO: extend (cla checker,...)
-      def jenkinsContext(context: String) = context != CommitStatusConstants.COMBINED
 
       // TODO: depends on PR's target (currently hardcoded to 2.11.x)
       def mainValidationJob(pull: PullRequest) = jcl.prefix(pull) + config.jenkins.jobSuffix
@@ -204,6 +210,18 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
       def combiStatus(state: String, msg: String): CommitStatus =
         CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
+
+      def claStatus(signed: Option[Boolean], user: String): CommitStatus = {
+        val checkUrl = s"https://typesafe.com/contribute/cla/scala/check/$user"
+        val signUrl  = "https://www.typesafe.com/contribute/cla/scala"
+        val (state, msg, url) = signed match {
+          case None        => (CommitStatusConstants.PENDING, s"Checking whether @$user signed the Scala CLA.", checkUrl)
+          case Some(true)  => (CommitStatusConstants.SUCCESS, s"@$user signed the Scala CLA. Thanks!", checkUrl)
+          case Some(false) => (CommitStatusConstants.FAILURE, s"@$user, please sign the Scala CLA by clicking on 'Details' -->", signUrl)
+        }
+        CommitStatus(state, Some(CommitStatusConstants.CLA), description = Some(msg.take(140)), target_url = Some(url))
+      }
+
 
       def jobParams(sha: String, lastCommit: Boolean): Map[String, String] = {
         // TODO: temporary until we run real integration on the actual merge commit
@@ -332,8 +350,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 //        msg
 //      }
 
-      val githubReports = combiCommitStatus.statuses.groupBy(_.context).collect {
-        case (Some(context), mostRecentStatus :: _) if jenkinsContext(context) =>
+      val githubReports = combiCommitStatus.byContext.collect {
+        case (Some(context), mostRecentStatus :: _) if CommitStatusConstants.jenkinsContext(context) =>
           (context, GitHubReport(mostRecentStatus.state, mostRecentStatus.target_url))
       }
 
@@ -370,18 +388,14 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       syncher
     }
 
+    // /nothingtoseehere
     private def overrideFailures(combiCommitStatus: CombiCommitStatus): Future[List[CommitStatus]] =
-      Future.sequence(combiCommitStatus.statuses.groupBy(_.context).collect {
+      Future.sequence(combiCommitStatus.byContext.collect {
         case (Some(context), mostRecentStatus :: _) if !mostRecentStatus.success =>
           CommitStatus(CommitStatusConstants.SUCCESS, Some(context), description = Some("Failure overridden. Nothing to see here."), target_url = mostRecentStatus.target_url)
       }.toList.map(githubApi.postStatus(combiCommitStatus.sha, _)))
 
 
-    private def fetchCommitStatus(sha: String) = {
-      val fetcher = githubApi.commitStatus(sha)
-      fetcher.onFailure { case e => log.warning(s"Couldn't get status for ${sha}: $e")}
-      fetcher
-    }
 
     private def lastOnly(pullTitle: String) = config.github.lastCommitOnly || pullTitle.contains("[ci: last-only]") // only test last commit when requested in PR's title (e.g., for large PRs)
 
@@ -445,6 +459,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
 
+    // MILESTONE
     private def milestoneForBranch(branch: String): Future[Milestone] = for {
       mss <- githubApi.repoMilestones()
       ms <- Future {
@@ -467,6 +482,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         }
       }
 
+    // REVIEWED
     private def hasLabelNamed(name: String) = githubApi.labels(pr).map(_.exists(_.name == name))
     private def synchReviewedLabel(hasLGTM: Boolean) = for {
       hasReviewedLabel <- hasLabelNamed("reviewed")
@@ -476,11 +492,34 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
     private def checkLGTM(pull: PullRequest) = for {
-    // purposefully only at start of line to avoid conditional LGTMs
       hasLGTM <- issueComments.map(_.exists(Commands.isLGTM))
     } yield synchReviewedLabel(hasLGTM)
 
+    // CLA
+    // last commit has successful most recent status under the CLA context
+    private def successfulCLA(pull: PullRequest, last: String) = for {
+      lastStatus <- fetchCommitStatus(last)
+      claStatus  <- Future { lastStatus(CommitStatusConstants.CLA).get.head }
+      if claStatus.success
+    } yield claStatus
 
+    // user signed CLA -- update commit status
+    private def signedCLA(pull: PullRequest, last: String) = {
+      val user = pull.user.login
+
+      for {
+        pending   <- githubApi.postStatus(last, BuildHelp.claStatus(None, user))
+        claRecord <- typesafeApi.checkCla(user)
+        res       <- githubApi.postStatus(last, BuildHelp.claStatus(Some(claRecord.signed), user))
+      } yield res
+    }
+
+    private def checkCLA(pull: PullRequest) = for {
+      last  <- lastSha
+      res   <- successfulCLA(pull, last) fallbackTo signedCLA(pull, last)
+    } yield res
+
+    // commands
     private def execCommands(pullRequest: PullRequest) = for {
       comments       <- issueComments
       commentResults <- Future.sequence(comments.map(handleComment))
@@ -539,6 +578,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
     object Commands {
+      // purposefully only at start of line to avoid conditional LGTMs
       def isLGTM(comment: IssueComment): Boolean = comment.body.startsWith("LGTM")
 
       def hasCommand(body: String) = body.startsWith("/")
