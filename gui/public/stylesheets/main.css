@@ -1,0 +1,29 @@
+table {
+	margin: 10px;
+	width: 700px;
+	border: 1px;
+}
+
+caption {
+	background: #103a51;
+	font-weight: bold;
+	font-size: 1.1em;
+	text-align: left;
+	color: white;
+	padding: 5px;
+}
+
+th {
+	font-weight: bold;
+	color: white;
+	background: #2e6d82;
+}
+
+a {
+	color: white;
+	text-
+}
+
+a:visited {
+	color: white;
+}
