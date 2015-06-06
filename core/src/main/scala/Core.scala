@@ -12,6 +12,11 @@ import spray.httpx.unmarshalling._
 import scala.concurrent.{Promise, Future, ExecutionContext}
 
 trait Core extends Util {
+
+  // We need an ActorSystem not only for the actors that make up
+  // the server, but also in order to use akka.io.IO's HTTP support,
+  // which is actor-based.  (It's not strictly necessary we use
+  // the *same* actor system in both places, but whatevs.)
   implicit def system: ActorSystem
 
   // needed for marshalling implicits for the json api

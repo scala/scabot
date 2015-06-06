@@ -2,6 +2,10 @@
 // * https://developer.github.com/guides/getting-started/
 // * https://developer.github.com/v3/
 
+// A note on terminology: a repository is identified by a combination
+// of a user name and a repository name.  The user name might be an
+// individual's, but is more likely an organization name.
+
 package scabot
 package github
 
