@@ -12,7 +12,7 @@ package github
 trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions { self: core.Core with core.HttpClient with core.Configuration => }
 
 // definitions in topo-order, no cycles in dependencies
-trait GithubApiTypes { self: core.Core with core.Configuration =>
+trait GithubApiTypes { self: core.Core =>
   // spray json seems to disregard the expected type and won't unmarshall a json number as a String (sometimes github uses longs, sometimes string reps)
   type Date = Option[Either[String, Long]]
 
