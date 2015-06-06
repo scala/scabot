@@ -1,0 +1,17 @@
+@(prs: List[scabot.github.GithubApiTypes#Issue], caption: Option[String] = None)
+
+<table>
+	<caption>@caption Total PRs: @prs.size</caption>
+	<tr>
+		<th><a href="@routes.Dashboard.break("title")">Title</a></th>
+		<th><a href="@routes.Dashboard.break("milestone")">Milestone</a></th>
+		<th><a href="@routes.Dashboard.break("asignee")">Asignee</a></th>
+	</tr>
+	@for(pr <- prs) {
+		<tr>
+			<td>@pr.title</td>
+			<td>@pr.milestone.map(_.title).getOrElse("No Milestone")</td>
+			<td>@pr.assignee.map(_.login).getOrElse("No Asignee")</td>
+		</tr>
+	}
+</table>

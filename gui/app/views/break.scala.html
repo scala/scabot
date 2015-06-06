@@ -1,0 +1,7 @@
+@(brokenDownPrs: Map[String, List[scabot.github.GithubApiTypes#Issue]])
+
+@main("Das Dashboard") {
+	@for((cat, prs) <- brokenDownPrs) {
+		@prList(prs, Some(cat))
+	}
+}
