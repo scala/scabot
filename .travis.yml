@@ -3,7 +3,8 @@ script:
   - sbt ++$TRAVIS_SCALA_VERSION compile
 scala:
   - 2.11.6
-# we actually build and run on openjdk8 in production, see scala-jenkins-infra
+# we actually build and run on openjdk8 in production, see scala-jenkins-infra.
+# but (as of June 2015) Travis only supports Oracle Java 8, not OpenJDK 8
 jdk:
   - oraclejdk8
 notifications:

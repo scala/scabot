@@ -33,6 +33,33 @@ Scabot runs on the CI server under the `scabot` account. We [push to deploy](../
 ### Restart (last resort)
 `ssh jenkins-master`, and `sudo /etc/init.d/scabot restart`.
 
+## Command line interface (experimental)
+The Scabot code includes a suite of methods corresponding to various
+GitHub API calls, returning instances of case classes representing the
+JSON responses from the API calls.  You can use these methods from the
+Scala REPL to do your own queries. Here is a sample session.  Note
+that you must supply a
+[personal GitHub API access token](https://help.github.com/articles/creating-an-access-token-for-command-line-use/)
+when starting sbt.
+
+```text
+% sbt -Dscabot.github.token=... cli/console
+Welcome to Scala ...
+...
+
+scala> val c = new scabot.cli.CLI("scala")
+c: scabot.cli.CLI = ...
+
+scala> val pulls = c.await(c.api.pullRequests)
+pulls: List[c.PullRequest] =
+List(PullRequest(...), ...)
+
+scala> pulls.filter(_.user == c.User("retronym")).map(_.number)
+res0: List[Int] = List(4535, 4522)
+
+scala> c.shutdown()
+```
+
 ## Implementation notes
 It's Akka-based.  ("My first Akka app", Adriaan says.)
 
