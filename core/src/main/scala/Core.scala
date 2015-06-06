@@ -73,16 +73,20 @@ trait HttpClient { self: Core =>
   val logResponseBody = {response: HttpResponse => system.log.debug(response.entity.asString.take(2000)); response }
 
   // use this to initialize an implicit of type Future[SendReceive], for use with p (for "pipeline") and px below
-  def setupConnection(host: String, credentials: HttpCredentials): Future[SendReceive] = {
+  def setupConnection(host: String, credentials: Option[HttpCredentials] = None): Future[SendReceive] = {
     import akka.pattern.ask
     import akka.util.Timeout
     import scala.concurrent.duration._
     implicit val timeout = Timeout(5.seconds)
 
+    val noop: RequestTransformer = identity[HttpRequest]
+    val auth: RequestTransformer = credentials.map(addCredentials).getOrElse(noop)
+
     for (
       Http.HostConnectorInfo(connector, _) <- IO(Http) ? HostConnectorSetup(host = host, port = 443, sslEncryption = true)
-    ) yield addCredentials(credentials) ~> sendReceive(connector) ~> logResponseBody
+    ) yield auth ~> sendReceive(connector) ~> logResponseBody
   }
+
 
   def p[T: FromResponseUnmarshaller](req: HttpRequest)(implicit connection: Future[SendReceive]): Future[T] =
     connection flatMap { sr => (sr ~> unmarshal[T]).apply(req) }
@@ -93,6 +97,6 @@ trait HttpClient { self: Core =>
 
 // for experimenting with the actors logic
 trait NOOPHTTPClient extends HttpClient { self: Core =>
-  override def setupConnection(host: String, credentials: HttpCredentials): Future[SendReceive] =
+  override def setupConnection(host: String, credentials: Option[HttpCredentials] = None): Future[SendReceive] =
     Future.successful{ x => logRequest(system.log, akka.event.Logging.InfoLevel).apply(x); Future.successful(HttpResponse()) }
 }

@@ -142,7 +142,7 @@ trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.
     import spray.httpx.SprayJsonSupport._
     import spray.client.pipelining._
 
-    private implicit def connection = setupConnection(config.host, BasicHttpCredentials(config.user, config.token))
+    private implicit def connection = setupConnection(config.host, Some(BasicHttpCredentials(config.user, config.token)))
 
     def api(rest: String) = Uri("/" + rest)
 

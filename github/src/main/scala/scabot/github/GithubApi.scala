@@ -141,7 +141,7 @@ trait GithubApiActions extends GithubJsonProtocol { self: core.Core with core.Co
     // NOTE: the token (https://github.com/settings/applications#personal-access-tokens)
     // must belong to a collaborator of the repo (https://github.com/$user/$repo/settings/collaboration)
     // or we can't set commit statuses
-    private implicit def connection = setupConnection(config.host, new BasicHttpCredentials(config.token, "x-oauth-basic")) // https://developer.github.com/v3/auth/#basic-authentication
+    private implicit def connection = setupConnection(config.host, Some(new BasicHttpCredentials(config.token, "x-oauth-basic"))) // https://developer.github.com/v3/auth/#basic-authentication
     // addHeader("X-My-Special-Header", "fancy-value")
     // "Accept" -> "application/vnd.github.v3+json"
 
