@@ -77,7 +77,7 @@ trait HttpClient { self: Core =>
     import akka.pattern.ask
     import akka.util.Timeout
     import scala.concurrent.duration._
-    implicit val timeout = Timeout(5.seconds)
+    implicit val timeout = Timeout(15.seconds)
 
     val noop: RequestTransformer = identity[HttpRequest]
     val auth: RequestTransformer = credentials.map(addCredentials).getOrElse(noop)
