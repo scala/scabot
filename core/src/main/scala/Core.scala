@@ -6,7 +6,8 @@ import akka.event.Logging
 import akka.io.IO
 import spray.can.Http
 import spray.client.pipelining._
-import spray.http.{HttpCredentials, HttpResponse}
+import spray.http.{StatusCode, HttpCredentials, HttpResponse}
+import spray.httpx.PipelineException
 import spray.httpx.unmarshalling._
 
 import scala.concurrent.{Promise, Future, ExecutionContext}
@@ -95,6 +96,16 @@ trait HttpClient { self: Core =>
 
   def p[T: FromResponseUnmarshaller](req: HttpRequest)(implicit connection: Future[SendReceive]): Future[T] =
     connection flatMap { sr => (sr ~> unmarshal[T]).apply(req) }
+
+  def pWithStatus[T: FromResponseUnmarshaller](req: HttpRequest)(implicit connection: Future[SendReceive]): Future[(T, StatusCode)] =
+    connection flatMap { sr => (sr ~> unmarshalWithStatus[T]).apply(req) }
+
+  def unmarshalWithStatus[T: FromResponseUnmarshaller]: HttpResponse ⇒ (T, StatusCode) =
+    response ⇒ response.as[T] match {
+      case Right(value) ⇒ (value, response.status)
+      case Left(error: MalformedContent) ⇒ throw new PipelineException(error.errorMessage, error.cause.orNull)
+      case Left(error) ⇒ throw new PipelineException(error.toString)
+    }
 
   def px(req: HttpRequest)(implicit connection: Future[SendReceive]): Future[HttpResponse] =
     connection flatMap (_.apply(req))

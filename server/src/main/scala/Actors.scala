@@ -510,9 +510,15 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       val checkUrl = s"$signUrl/check/$user"
       val claKind  = "Scala"
 
+      def checkCla = {
+        val fetcher = typesafeApi.checkCla(user).map(_._1) // ignore status code for now (404 is returned if CLA is not signed...)
+        fetcher.onFailure { case e => log.warning(s"Couldn't get CLA for ${user}: $e")}
+        fetcher
+      }
+
       for {
         pending   <- githubApi.postStatus(last, BuildHelp.claStatus(None, user, claKind, checkUrl, signUrl))
-        claRecord <- typesafeApi.checkCla(user)
+        claRecord <- checkCla
         res       <- githubApi.postStatus(last, BuildHelp.claStatus(Some(claRecord.signed), user, claKind, checkUrl, signUrl))
       } yield res
     }

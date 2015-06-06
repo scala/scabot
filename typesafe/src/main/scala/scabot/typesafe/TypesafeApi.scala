@@ -23,6 +23,6 @@ trait TypesafeApiActions extends TypesafeJsonProtocol { self: core.Core with cor
     private implicit def connection = setupConnection("www.typesafe.com")
     import spray.json._
 
-    def checkCla(user: String) = p[CLARecord](Get(Uri("/contribute/cla/scala/check" / user)))
+    def checkCla(user: String) = pWithStatus[CLARecord](Get(Uri("/contribute/cla/scala/check" / user)))
   }
 }
