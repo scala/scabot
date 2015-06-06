@@ -1,8 +1,8 @@
 POST    /jenkins                  controllers.Scabot.jenkins
 POST    /github                   controllers.Scabot.github
 
-GET     /                         controllers.Dashboard.index
-GET     /pulls                    controllers.Dashboard.pulls
-GET     /break/:by                controllers.Dashboard.break(by: String)
+GET     /dashboard                controllers.Dashboard.index
+GET     /dashboard/pulls          controllers.Dashboard.pulls
+GET     /dashboard/break/:by      controllers.Dashboard.break(by: String)
 
-GET     /assets/*file             controllers.Assets.versioned(path="/public", file: Asset)
+GET     /dashboard/assets/*file   controllers.Assets.versioned(path="/public", file: Asset)

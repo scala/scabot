@@ -19,11 +19,18 @@ th {
 	background: #2e6d82;
 }
 
-a {
+th a {
 	color: white;
-	text-
 }
 
-a:visited {
+th a:visited {
 	color: white;
+}
+
+td a {
+	color: black;
+}
+
+td a:visited {
+	color: black;
 }
