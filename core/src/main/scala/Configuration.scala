@@ -3,9 +3,11 @@ package scabot.core
 import com.typesafe.config.{Config => TConfig, _}
 
 trait Configuration { self: Core =>
-  // TODO make file location configurable
+
+  def configFile: java.io.File
+
   // TODO generate config using chef
-  lazy val configs: Map[String, Config] = parseConfig(new java.io.File(sys.props("scabot.config.file")))
+  lazy val configs: Map[String, Config] = parseConfig(configFile)
 
   object Config {
     // only PRs targeting a branch in `branches` will be monitored
