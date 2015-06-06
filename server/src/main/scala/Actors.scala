@@ -212,11 +212,12 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
 
       def claStatus(signed: Option[Boolean], user: String): CommitStatus = {
-        val url = s"https://typesafe.com/contribute/cla/scala/check/$user"
-        val (state, msg) = signed match {
-          case None        => (CommitStatusConstants.PENDING, s"Checking whether @$user signed the Scala CLA.")
-          case Some(true)  => (CommitStatusConstants.SUCCESS, s"@$user signed the Scala CLA!")
-          case Some(false) => (CommitStatusConstants.FAILURE, s"@$user has not yet signed the Scala CLA!")
+        val checkUrl = s"https://typesafe.com/contribute/cla/scala/check/$user"
+        val signUrl  = "https://www.typesafe.com/contribute/cla/scala"
+        val (state, msg, url) = signed match {
+          case None        => (CommitStatusConstants.PENDING, s"Checking whether @$user signed the Scala CLA.", checkUrl)
+          case Some(true)  => (CommitStatusConstants.SUCCESS, s"@$user signed the Scala CLA. Thanks!", checkUrl)
+          case Some(false) => (CommitStatusConstants.FAILURE, s"@$user, please sign the Scala CLA by clicking on 'Details' -->", signUrl)
         }
         CommitStatus(state, Some(CommitStatusConstants.CLA), description = Some(msg.take(140)), target_url = Some(url))
       }
