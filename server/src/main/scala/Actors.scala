@@ -103,9 +103,16 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 
     // currently only used for pull.base.ref, so we only create the future once (this can never change)
     // TODO: do a .map(pull => pull.base.ref) and refactor to clarify
-    lazy val pullCached    = githubApi.pullRequest(pr)
-    def pullRequestCommits = githubApi.pullRequestCommits(pr)
-    def issueComments      = githubApi.issueComments(pr)
+    private lazy val pullCached    = githubApi.pullRequest(pr)
+    private def pullRequestCommits = githubApi.pullRequestCommits(pr)
+    private def lastSha            = pullRequestCommits map (_.last.sha)
+    private def issueComments      = githubApi.issueComments(pr)
+
+    private def fetchCommitStatus(sha: String) = {
+      val fetcher = githubApi.commitStatus(sha)
+      fetcher.onFailure { case e => log.warning(s"Couldn't get status for ${sha}: $e")}
+      fetcher
+    }
 
     private var lastSynchronized: Date = None
 
@@ -171,12 +178,9 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
           Some(job.replace(prefix(pull), "")) // TODO: should only replace *prefix*, not just anywhere in string
 
         def jobForContext(context: String, pull: PullRequest): Option[String] =
-          if (jenkinsContext(context)) Some(prefix(pull) + context)
+          if (CommitStatusConstants.jenkinsContext(context)) Some(prefix(pull) + context)
           else None
       }
-
-      // TODO: extend (cla checker,...)
-      def jenkinsContext(context: String) = context != CommitStatusConstants.COMBINED
 
       // TODO: depends on PR's target (currently hardcoded to 2.11.x)
       def mainValidationJob(pull: PullRequest) = jcl.prefix(pull) + config.jenkins.jobSuffix
@@ -332,8 +336,8 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
 //        msg
 //      }
 
-      val githubReports = combiCommitStatus.statuses.groupBy(_.context).collect {
-        case (Some(context), mostRecentStatus :: _) if jenkinsContext(context) =>
+      val githubReports = combiCommitStatus.byContext.collect {
+        case (Some(context), mostRecentStatus :: _) if CommitStatusConstants.jenkinsContext(context) =>
           (context, GitHubReport(mostRecentStatus.state, mostRecentStatus.target_url))
       }
 
@@ -370,18 +374,14 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
       syncher
     }
 
+    // /nothingtoseehere
     private def overrideFailures(combiCommitStatus: CombiCommitStatus): Future[List[CommitStatus]] =
-      Future.sequence(combiCommitStatus.statuses.groupBy(_.context).collect {
+      Future.sequence(combiCommitStatus.byContext.collect {
         case (Some(context), mostRecentStatus :: _) if !mostRecentStatus.success =>
           CommitStatus(CommitStatusConstants.SUCCESS, Some(context), description = Some("Failure overridden. Nothing to see here."), target_url = mostRecentStatus.target_url)
       }.toList.map(githubApi.postStatus(combiCommitStatus.sha, _)))
 
 
-    private def fetchCommitStatus(sha: String) = {
-      val fetcher = githubApi.commitStatus(sha)
-      fetcher.onFailure { case e => log.warning(s"Couldn't get status for ${sha}: $e")}
-      fetcher
-    }
 
     private def lastOnly(pullTitle: String) = config.github.lastCommitOnly || pullTitle.contains("[ci: last-only]") // only test last commit when requested in PR's title (e.g., for large PRs)
 
@@ -445,6 +445,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
 
+    // MILESTONE
     private def milestoneForBranch(branch: String): Future[Milestone] = for {
       mss <- githubApi.repoMilestones()
       ms <- Future {
@@ -467,6 +468,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
         }
       }
 
+    // REVIEWED
     private def hasLabelNamed(name: String) = githubApi.labels(pr).map(_.exists(_.name == name))
     private def synchReviewedLabel(hasLGTM: Boolean) = for {
       hasReviewedLabel <- hasLabelNamed("reviewed")
@@ -476,11 +478,11 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
     private def checkLGTM(pull: PullRequest) = for {
-    // purposefully only at start of line to avoid conditional LGTMs
       hasLGTM <- issueComments.map(_.exists(Commands.isLGTM))
     } yield synchReviewedLabel(hasLGTM)
 
 
+    // commands
     private def execCommands(pullRequest: PullRequest) = for {
       comments       <- issueComments
       commentResults <- Future.sequence(comments.map(handleComment))
@@ -539,6 +541,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
     }
 
     object Commands {
+      // purposefully only at start of line to avoid conditional LGTMs
       def isLGTM(comment: IssueComment): Boolean = comment.body.startsWith("LGTM")
 
       def hasCommand(body: String) = body.startsWith("/")

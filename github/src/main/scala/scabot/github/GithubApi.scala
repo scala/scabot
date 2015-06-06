@@ -13,8 +13,15 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
     final val PENDING = "pending"
     final val FAILURE = "failure"
 
-    // context to enforce that last commit is green only if all priort commits are also green
+    // context to enforce that last commit is green only if all prior commits are also green
     final val COMBINED = "combined"
+    final val REVIEWED = "reviewed"
+    final val CLA      = "cla"
+
+    def jenkinsContext(ctx: String) = ctx match {
+      case COMBINED | REVIEWED | CLA => false
+      case _ => true
+    }
   }
   import CommitStatusConstants._
 
@@ -56,7 +63,10 @@ trait GithubApiTypes { self: core.Core with core.Configuration =>
     def failure  = state == FAILURE
   }
 
-  case class CombiCommitStatus(state: String, sha: String, statuses: List[CommitStatus], total_count: Int) extends HasState
+  case class CombiCommitStatus(state: String, sha: String, statuses: List[CommitStatus], total_count: Int) extends HasState {
+    lazy val byContext = statuses.groupBy(_.context).toMap
+    def apply(context: String) = byContext.get(Some(context))
+  }
 
   trait HasContext {
     def context: Option[String]
