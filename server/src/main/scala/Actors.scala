@@ -24,7 +24,7 @@ trait Actors extends DynamoDb { self: core.Core with core.Configuration with git
   // pull request actors are supervised by their project actor
   private def projectActorName(user: String, repo: String) = s"$user-$repo"
 
-  def tellProjectActor(user: String, repo: String)(msg: ProjectMessage) =
+  def broadcast(user: String, repo: String)(msg: ProjectMessage) =
     system.actorSelection(githubActor.path / projectActorName(user, repo)) ! msg
 
 

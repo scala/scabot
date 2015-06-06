@@ -17,7 +17,7 @@ trait Core extends Util {
   // needed for marshalling implicits for the json api
   implicit def ec: ExecutionContext = system.dispatcher
 
-  def tellProjectActor(user: String, repo: String)(msg: ProjectMessage): Unit
+  def broadcast(user: String, repo: String)(msg: ProjectMessage): Unit
 
   // marker for messages understood by ProjectActor
   trait ProjectMessage

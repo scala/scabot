@@ -14,7 +14,7 @@ trait GithubService extends core.Core with GithubApi { self: core.HttpClient wit
     val UserRepo(user, repo) = repository.full_name
     val log = s"Processing $ev for $user/$repo"
     system.log.info(log)
-    tellProjectActor(user, repo)(ev)
+    broadcast(user, repo)(ev)
     log
   }
 

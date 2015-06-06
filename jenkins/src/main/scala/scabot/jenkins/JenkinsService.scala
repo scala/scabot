@@ -13,7 +13,7 @@ trait JenkinsService extends core.Core with JenkinsApi { self: core.HttpClient w
         for {
           user <- parameters.get(PARAM_REPO_USER)
           repo <- parameters.get(PARAM_REPO_NAME)
-        } yield tellProjectActor(user, repo)(jobState)
+        } yield broadcast(user, repo)(jobState)
       } getOrElse {
         system.log.warning(s"Couldn't identify project for job based on $PARAM_REPO_USER/$PARAM_REPO_NAME in $parameters. Was it started by us?")
       }
