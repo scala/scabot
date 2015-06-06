@@ -13,6 +13,8 @@ import scala.util._
 
 class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubService with JenkinsService with TypesafeApi with core.Configuration with core.HttpClient with Actors {
 
+  override def configFile = new java.io.File(sys.props("scabot.config.file"))
+
   startActors()
 
   // X-Github-Event:

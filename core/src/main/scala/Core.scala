@@ -12,12 +12,17 @@ import spray.httpx.unmarshalling._
 import scala.concurrent.{Promise, Future, ExecutionContext}
 
 trait Core extends Util {
+
+  // We need an ActorSystem not only for the actors that make up
+  // the server, but also in order to use akka.io.IO's HTTP support,
+  // which is actor-based.  (It's not strictly necessary we use
+  // the *same* actor system in both places, but whatevs.)
   implicit def system: ActorSystem
 
   // needed for marshalling implicits for the json api
   implicit def ec: ExecutionContext = system.dispatcher
 
-  def tellProjectActor(user: String, repo: String)(msg: ProjectMessage): Unit
+  def broadcast(user: String, repo: String)(msg: ProjectMessage): Unit
 
   // marker for messages understood by ProjectActor
   trait ProjectMessage
@@ -77,7 +82,7 @@ trait HttpClient { self: Core =>
     import akka.pattern.ask
     import akka.util.Timeout
     import scala.concurrent.duration._
-    implicit val timeout = Timeout(5.seconds)
+    implicit val timeout = Timeout(15.seconds)
 
     val noop: RequestTransformer = identity[HttpRequest]
     val auth: RequestTransformer = credentials.map(addCredentials).getOrElse(noop)
