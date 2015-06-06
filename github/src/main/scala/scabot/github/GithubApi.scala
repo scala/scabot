@@ -126,7 +126,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self:
   implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat4(CommitInfo)
   implicit lazy val _fmtCommit           : RJF[Commit]                        = jsonFormat3(Commit)
   implicit lazy val _fmtCommitStatus     : RJF[CommitStatus]                  = jsonFormat4(CommitStatus.apply)
-  implicit lazy val _fmtCombiCommitStatus: RJF[CombiCommitStatus]             = jsonFormat4(CombiCommitStatus)
+  implicit lazy val _fmtCombiCommitStatus: RJF[CombiCommitStatus]             = jsonFormat(CombiCommitStatus, "state", "sha", "statuses", "total_count") // need to specify field names because we added methods to the case class..
 
   implicit lazy val _fmtIssueComment     : RJF[IssueComment]                  = jsonFormat5(IssueComment)
   implicit lazy val _fmtPullRequestComment: RJF[PullRequestComment]           = jsonFormat8(PullRequestComment)
