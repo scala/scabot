@@ -12,7 +12,6 @@ It can be summoned (immediately!) through certain commands, posted as pull reque
 ### Automations and Activities
   - Trigger CI builds for commits, keeping us informed of their progress. (It will also pick up the results of manual rebuilds done directly on the CI server.)
   - Set milestone of a PR based on its target branch.
-  - Add "welcome" label for first-time contributors.
   - Let us know whether a contributor has signed the Scala CLA.
   - Add "reviewed" label when there's a comment starting with "LGTM"
   - For its ambitions, check out [Scabot's issues](../../issues).
@@ -37,7 +36,7 @@ Scabot runs on the CI server under the `scabot` account. We [push to deploy](../
 ## Implementation notes
 It's Akka-based.  ("My first Akka app", Adriaan says.)
 
-It uses Spray to make web API calls.  (These days, maybe it should be using akka-http instead.)
+It uses Spray to make web API calls.  (These days, maybe it should be using akka-http instead, if/when its SSL support is mature.)
 
 Pull request statuses are updated using GitHub's [Status API](https://developer.github.com/v3/repos/statuses/).
 
