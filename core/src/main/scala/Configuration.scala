@@ -54,6 +54,9 @@ trait Configuration { self: Core =>
         token <- configString(c.get("token"))
       } yield Jenkins(jobSuffix, host, user, token)
 
+    def defaultGitHubToken: Option[String] =
+      Option(sys.props("scabot.github.token"))
+
     def github(c: ConfigObject): Option[Github] =
       for {
         user  <- configString(c.get("user"))
@@ -61,7 +64,7 @@ trait Configuration { self: Core =>
         branches  <- configStringList(c.get("branches"))
         lastCommitOnly <- configBoolean(c.get("lastCommitOnly")) orElse Some(false) // default for scala/scala
         host  <- configString(c.get("host"))
-        token <- configString(c.get("token"))
+        token <- configString(c.get("token")).filter(_.nonEmpty) orElse defaultGitHubToken
       } yield Github(user, repo, branches.toSet, lastCommitOnly, host, token)
 
     def c2c(c: ConfigObject): Option[Config] =
