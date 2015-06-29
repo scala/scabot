@@ -52,8 +52,9 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
   case object Synch extends ProjectMessage
 
   // represents a github project at github.com/${config.github.user}/${config.github.repo}
-  class ProjectActor(config: Config) extends Actor with ActorLogging {
-    lazy val githubApi = new GithubConnection(config.github)
+  class ProjectActor(val config: Config) extends Actor with ActorLogging with Building {
+    lazy val githubApi  = new GithubConnection(config.github)
+    lazy val jenkinsApi = new JenkinsConnection(config.jenkins)
     import context._
 
     // find or create actor responsible for PR #`nb`
@@ -86,11 +87,33 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       case IssueCommentEvent("created", issue, comment, _) =>
         prActor(issue.number) ! comment
 
+      case PushEvent(ref, commits, _) =>
+        for {
+          ms  <- milestoneForBranch(ref) // only build for master-like branches (we always have milestones that mention this ref for those)
+          res <- buildPushedCommits(new BaseRef(ref), commits)
+        } yield res
+
       case js@JobState(_, _, bs) =>
-        (for {
+        // TODO: report failure
+        // TODO: handle jobs without PARAM_PR (commits built on push above)
+        for {
           prParam <- Try(bs.parameters(PARAM_PR)) // we only care about jobs we started, and which thus have this parameter (when restarted manually, they should be carried forward automatically)
           prNum   <- Try(prParam.toInt)
-        } prActor(prNum) ! js) // TODO: report failure
+        } prActor(prNum) ! js
+    }
+
+    // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
+    private def buildPushedCommits(baseRef: BaseRef, commits: List[CommitInfo]): Future[List[List[String]]] = {
+      val lastSha = commits.last.id // the merge commit, typically
+      Future.sequence(commits map { commit =>
+        for {
+          combiCs <- fetchCommitStatus(commit.id)
+          buildRes <- {
+            val params = repoParams ++ commitParams(combiCs.sha, combiCs.sha == lastSha)
+            Future.sequence(jobsTodo(baseRef, combiCs, rebuild = false).map(launchBuild(params, baseRef, combiCs.sha, _)))
+          }
+        } yield buildRes
+      })
     }
   }
 

@@ -23,11 +23,10 @@ trait GithubService extends GithubApi {
       notifyProject(ev, ev.pull_request.base.repo)
   }
 
-//  def pushEvent(ev: PushEvent): String = ev match {
-//    case PushEvent(ref, before, after, created, deleted, forced, base_ref, commits, head_commit, repository, pusher) =>
-//      println(ev)
-//      ev.toString
-//  }
+  def pushEvent(ev: PushEvent): String = ev match {
+    case PushEvent(ref, commits, repository) =>
+      notifyProject(ev, repository)
+  }
 
   def issueCommentEvent(ev: IssueCommentEvent): String = ev match {
     case IssueCommentEvent(action, issue, comment, repository) =>

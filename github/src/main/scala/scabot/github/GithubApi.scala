@@ -61,7 +61,7 @@ trait GithubApiTypes extends core.Core {
   case class Issue(number: Int, state: String, title: String, body: Option[String], user: User, labels: List[Label],
                    assignee: Option[User], milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date)
 
-  case class CommitInfo(message: String, timestamp: Date, author: Author, committer: Author)
+  case class CommitInfo(id: String, message: String, timestamp: Date, author: Author, committer: Author)
     // added: Option[List[String]], removed: Option[List[String]], modified: Option[List[String]]
   case class Commit(sha: String, commit: CommitInfo, url: Option[String] = None)
 
@@ -96,8 +96,8 @@ trait GithubApiTypes extends core.Core {
                                 // diff_hunk, original_position, original_commit_id
 
   case class PullRequestEvent(action: String, number: Int, pull_request: PullRequest) extends ProjectMessage with PRMessage
-  case class PushEvent(ref: String, before: String, after: String, created: Boolean, deleted: Boolean, forced: Boolean,
-                       base_ref: Option[String], commits: List[CommitInfo], head_commit: CommitInfo, repository: Repository, pusher: Author)
+  case class PushEvent(ref_name: String, distinct_commits: List[CommitInfo], repository: Repository) extends ProjectMessage
+//                        ref: String, before: String, after: String, created: Boolean, deleted: Boolean, forced: Boolean,  base_ref: Option[String], commits: List[CommitInfo], head_commit: CommitInfo, repository: Repository, pusher: Author)
   case class PullRequestReviewCommentEvent(action: String, pull_request: PullRequest, comment: PullRequestComment, repository: Repository)  extends ProjectMessage
   case class IssueCommentEvent(action: String, issue: Issue, comment: IssueComment, repository: Repository) extends ProjectMessage
 
@@ -125,7 +125,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol with co
   implicit lazy val _fmtMilestone        : RJF[Milestone]                     = jsonFormat9(Milestone.apply)
   implicit lazy val _fmtIssue            : RJF[Issue]                         = jsonFormat11(Issue)
 
-  implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat4(CommitInfo)
+  implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat5(CommitInfo)
   implicit lazy val _fmtCommit           : RJF[Commit]                        = jsonFormat3(Commit)
   implicit lazy val _fmtCommitStatus     : RJF[CommitStatus]                  = jsonFormat4(CommitStatus.apply)
   implicit lazy val _fmtCombiCommitStatus: RJF[CombiCommitStatus]             = jsonFormat(CombiCommitStatus, "state", "sha", "statuses", "total_count") // need to specify field names because we added methods to the case class..
@@ -134,7 +134,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol with co
   implicit lazy val _fmtPullRequestComment: RJF[PullRequestComment]           = jsonFormat8(PullRequestComment)
 
   implicit lazy val _fmtPullRequestEvent : RJF[PullRequestEvent]              = jsonFormat3(PullRequestEvent)
-  implicit lazy val _fmtPushEvent        : RJF[PushEvent]                     = jsonFormat11(PushEvent)
+  implicit lazy val _fmtPushEvent        : RJF[PushEvent]                     = jsonFormat3(PushEvent)
   implicit lazy val _fmtPRCommentEvent   : RJF[PullRequestReviewCommentEvent] = jsonFormat4(PullRequestReviewCommentEvent)
   implicit lazy val _fmtIssueCommentEvent: RJF[IssueCommentEvent]             = jsonFormat4(IssueCommentEvent)
 
