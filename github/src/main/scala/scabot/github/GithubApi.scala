@@ -9,10 +9,10 @@
 package scabot
 package github
 
-trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions { self: core.Core with core.HttpClient with core.Configuration => }
+trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions
 
 // definitions in topo-order, no cycles in dependencies
-trait GithubApiTypes { self: core.Core =>
+trait GithubApiTypes extends core.Core {
   // spray json seems to disregard the expected type and won't unmarshall a json number as a String (sometimes github uses longs, sometimes string reps)
   type Date = Option[Either[String, Long]]
 
@@ -109,7 +109,7 @@ import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
 // TODO: test against https://github.com/github/developer.github.com/tree/master/lib/webhooks
-trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self: core.Core with core.Configuration =>
+trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol with core.Configuration {
   private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtUser             : RJF[User]                          = jsonFormat1(User)
   implicit lazy val _fmtAuthor           : RJF[Author]                        = jsonFormat2(Author)
@@ -140,7 +140,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self:
   // implicit lazy val _fmtAuthApp          : RJF[AuthApp]                       = jsonFormat2(AuthApp)
 }
 
-trait GithubApiActions extends GithubJsonProtocol { self: core.Core with core.Configuration with core.HttpClient =>
+trait GithubApiActions extends GithubJsonProtocol with core.HttpClient {
   class GithubConnection(config: Config.Github) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._

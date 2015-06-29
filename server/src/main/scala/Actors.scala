@@ -15,7 +15,7 @@ import scala.util.Try
 /**
  * Created by adriaan on 1/15/15.
  */
-trait Actors extends DynamoDb { self: core.Core with core.Configuration with github.GithubApi with jenkins.JenkinsApi with typesafe.TypesafeApi =>
+trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.TypesafeApi with DynamoDb with core.Util {
   def system: ActorSystem
 
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")

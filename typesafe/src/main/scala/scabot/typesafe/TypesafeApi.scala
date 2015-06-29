@@ -3,18 +3,18 @@ package typesafe
 
 import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
-trait TypesafeApi extends TypesafeApiTypes with DefaultJsonProtocol with TypesafeApiActions { self: core.Core with core.HttpClient with core.Configuration => }
+trait TypesafeApi extends TypesafeApiTypes with DefaultJsonProtocol with TypesafeApiActions
 
-trait TypesafeApiTypes { self: core.Core with core.Configuration =>
+trait TypesafeApiTypes {
   case class CLARecord(user: String, signed: Boolean, version: Option[String], currentVersion: String)
 }
 
-trait TypesafeJsonProtocol extends TypesafeApiTypes with DefaultJsonProtocol { self: core.Core with core.Configuration =>
+trait TypesafeJsonProtocol extends TypesafeApiTypes with DefaultJsonProtocol {
   private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtCLARecord: RJF[CLARecord] = jsonFormat4(CLARecord)
 }
 
-trait TypesafeApiActions extends TypesafeJsonProtocol { self: core.Core with core.Configuration with core.HttpClient =>
+trait TypesafeApiActions extends TypesafeJsonProtocol with core.HttpClient {
   class TypesafeConnection {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._

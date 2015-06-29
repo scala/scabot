@@ -6,7 +6,7 @@ import akka.event.Logging
 import scala.util.{Success, Failure}
 
 
-trait GithubService extends core.Core with GithubApi { self: core.HttpClient with core.Configuration =>
+trait GithubService extends GithubApi {
   import spray.httpx.SprayJsonSupport._
 
   private lazy val UserRepo = """([^/]+)/(.+)""".r

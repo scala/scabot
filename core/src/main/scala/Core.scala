@@ -12,7 +12,7 @@ import spray.httpx.unmarshalling._
 
 import scala.concurrent.{Promise, Future, ExecutionContext}
 
-trait Core extends Util {
+trait Core {
 
   // We need an ActorSystem not only for the actors that make up
   // the server, but also in order to use akka.io.IO's HTTP support,
@@ -46,7 +46,7 @@ trait Core extends Util {
   }
 }
 
-trait Util { self: Core =>
+trait Util {
   def findFirstSequentially[T](futures: Stream[Future[T]])(p: T => Boolean): Future[T] = {
     val resultPromise = Promise[T]
     def loop(futures: Stream[Future[T]]): Unit =
@@ -68,7 +68,7 @@ trait Util { self: Core =>
 }
 
 
-trait HttpClient { self: Core =>
+trait HttpClient extends Core {
   import spray.can.Http.HostConnectorSetup
   import spray.client.pipelining._
   import spray.http.{HttpCredentials, HttpRequest}
@@ -112,7 +112,7 @@ trait HttpClient { self: Core =>
 }
 
 // for experimenting with the actors logic
-trait NOOPHTTPClient extends HttpClient { self: Core =>
+trait NOOPHTTPClient extends HttpClient {
   override def setupConnection(host: String, credentials: Option[HttpCredentials] = None): Future[SendReceive] =
     Future.successful{ x => logRequest(system.log, akka.event.Logging.InfoLevel).apply(x); Future.successful(HttpResponse()) }
 }
