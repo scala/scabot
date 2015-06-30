@@ -338,7 +338,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
 
 
     // synch contexts assumed to correspond to jenkins jobs with the most recent result of the corresponding build of the jenkins job specified by the context
-    private def synchBuildStatuses(baseRef: BaseRef, combiCommitStatus: CombiCommitStatus, lastCommit: Boolean): Future[List[String]] = {
+    private def synchBuildStatuses(expected: Map[String, String], baseRef: BaseRef, combiCommitStatus: CombiCommitStatus): Future[List[String]] = {
       case class GitHubReport(state: String, url: Option[String])
       def toReport(bs: BuildStatus) = GitHubReport(stateForBuild(bs), urlForBuild(bs))
 
@@ -346,7 +346,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
         linkedBuild <- jenkinsApi.buildStatus(url)
       } yield linkedBuild
 
-      val expected = jobParams(combiCommitStatus.sha, lastCommit)
       def checkMostRecent(job: String): Future[BuildStatus] = for {
       // summarize jenkins's report as the salient parts of a CommitStatus (should match what github reported in combiCommitStatus)
         bss <- jenkinsApi.buildStatusesForJob(job)
@@ -397,7 +396,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
         } yield res.toString) recover { case _ : NoSuchElementException => "No need to synch." }
       })
 
-      syncher onFailure { case e => log.error(s"FAILED synchBuildStatuses($combiCommitStatus, $lastCommit): $e") } // should never happen with the recover
+      syncher onFailure { case e => log.error(s"FAILED synchBuildStatuses($combiCommitStatus): $e") } // should never happen with the recover
       syncher
     }
 
@@ -421,13 +420,12 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
           log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
-            buildRes <-
-              if (synchOnly) synchBuildStatuses(baseRef, combiCs, combiCs.sha == lastSha)
+            buildRes <- {
+              val params = jobParams(combiCs.sha, combiCs.sha == lastSha)
+              if (synchOnly) synchBuildStatuses(params, baseRef, combiCs)
               else if (lastOnly && combiCs.sha != lastSha) Future.successful(List(s"Skipped ${combiCs.sha} on request"))
-              else {
-                val params = jobParams(combiCs.sha, combiCs.sha == lastSha)
-                Future.sequence(jobsTodo(baseRef, combiCs, rebuild = forceRebuild).map(launchBuild(params, baseRef, combiCs.sha, _)))
-              }
+              else Future.sequence(jobsTodo(baseRef, combiCs, rebuild = forceRebuild).map(launchBuild(params, baseRef, combiCs.sha, _)))
+            }
           } yield buildRes
         })
       } yield results
