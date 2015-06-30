@@ -6,7 +6,7 @@ import akka.event.Logging
 import scala.util.{Success, Failure}
 
 
-trait GithubService extends core.Core with GithubApi { self: core.HttpClient with core.Configuration =>
+trait GithubService extends GithubApi {
   import spray.httpx.SprayJsonSupport._
 
   private lazy val UserRepo = """([^/]+)/(.+)""".r
@@ -23,11 +23,10 @@ trait GithubService extends core.Core with GithubApi { self: core.HttpClient wit
       notifyProject(ev, ev.pull_request.base.repo)
   }
 
-//  def pushEvent(ev: PushEvent): String = ev match {
-//    case PushEvent(ref, before, after, created, deleted, forced, base_ref, commits, head_commit, repository, pusher) =>
-//      println(ev)
-//      ev.toString
-//  }
+  def pushEvent(ev: PushEvent): String = ev match {
+    case PushEvent(ref, commits, repository) =>
+      notifyProject(ev, repository)
+  }
 
   def issueCommentEvent(ev: IssueCommentEvent): String = ev match {
     case IssueCommentEvent(action, issue, comment, repository) =>

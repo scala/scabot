@@ -6,9 +6,9 @@ import spray.http.BasicHttpCredentials
 import scala.concurrent.Future
 import scala.util.Try
 
-trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions { self: core.Core with core.Configuration with core.HttpClient => }
+trait JenkinsApi extends JenkinsApiTypes with JenkinsJsonProtocol with JenkinsApiActions
 
-trait JenkinsApiTypes { self: core.Core with core.Configuration =>
+trait JenkinsApiTypes extends core.Configuration {
   object Job {
     // avoid humongeous replies that would require more spray sophistication (chunking etc)
     val XPath = "?tree=name,description,nextBuildNumber,builds[number,url],queueItem[*],lastBuild[number,url],firstBuild[number,url]"
@@ -121,7 +121,7 @@ trait JenkinsApiTypes { self: core.Core with core.Configuration =>
 import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
-trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { self: core.Core with core.Configuration =>
+trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol {
   private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtJob         : RJF[Job        ] = jsonFormat7(Job.apply)
   implicit lazy val _fmtBuild       : RJF[Build      ] = jsonFormat2(Build)
@@ -136,7 +136,7 @@ trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol { sel
   implicit lazy val _fmtScmState    : RJF[ScmParams  ] = jsonFormat3(ScmParams)
 }
 
-trait JenkinsApiActions extends JenkinsJsonProtocol { self: core.Core with core.Configuration with core.HttpClient =>
+trait JenkinsApiActions extends JenkinsJsonProtocol with core.HttpClient {
   class JenkinsConnection(config: Config.Jenkins) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._

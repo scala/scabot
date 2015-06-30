@@ -2,7 +2,7 @@ package scabot.core
 
 import com.typesafe.config.{Config => TConfig, _}
 
-trait Configuration { self: Core =>
+trait Configuration extends Core {
 
   def configFile: java.io.File
 

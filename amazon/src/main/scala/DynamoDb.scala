@@ -16,7 +16,7 @@ import scala.concurrent.Future
 /**
  * Created by adriaan on 1/23/15.
  */
-trait DynamoDb { self: core.Core =>
+trait DynamoDb extends core.Core {
   class DynoDbClient {
     private lazy val dynamoDBClient = {
       val ipcp   = new InstanceProfileCredentialsProvider()

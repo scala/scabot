@@ -9,10 +9,12 @@
 package scabot
 package github
 
-trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions { self: core.Core with core.HttpClient with core.Configuration => }
+import scabot.core.BaseRef
+
+trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions
 
 // definitions in topo-order, no cycles in dependencies
-trait GithubApiTypes { self: core.Core =>
+trait GithubApiTypes extends core.Core {
   // spray json seems to disregard the expected type and won't unmarshall a json number as a String (sometimes github uses longs, sometimes string reps)
   type Date = Option[Either[String, Long]]
 
@@ -59,7 +61,7 @@ trait GithubApiTypes { self: core.Core =>
   case class Issue(number: Int, state: String, title: String, body: Option[String], user: User, labels: List[Label],
                    assignee: Option[User], milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date)
 
-  case class CommitInfo(message: String, timestamp: Date, author: Author, committer: Author)
+  case class CommitInfo(id: String, message: String, timestamp: Date, author: Author, committer: Author)
     // added: Option[List[String]], removed: Option[List[String]], modified: Option[List[String]]
   case class Commit(sha: String, commit: CommitInfo, url: Option[String] = None)
 
@@ -84,8 +86,8 @@ trait GithubApiTypes { self: core.Core =>
 
   // TODO: factory method that caps state to 140 chars
   case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None) extends HasState with HasContext {
-    def forJob(job: String, pull: PullRequest)(implicit lense: JobContextLense): Boolean = lense.contextForJob(job, pull) == context
-    def jobName(pull: PullRequest)(implicit lense: JobContextLense): Option[String] = context.flatMap(lense.jobForContext(_, pull))
+    def forJob(job: String, baseRef: BaseRef)(implicit lense: JobContextLense): Boolean = lense.contextForJob(job, baseRef) == context
+    def jobName(baseRef: BaseRef)(implicit lense: JobContextLense): Option[String] = context.flatMap(lense.jobForContext(_, baseRef))
   }
 
   case class IssueComment(body: String, user: Option[User] = None, created_at: Date = None, updated_at: Date = None, id: Option[Long] = None) extends PRMessage
@@ -94,8 +96,8 @@ trait GithubApiTypes { self: core.Core =>
                                 // diff_hunk, original_position, original_commit_id
 
   case class PullRequestEvent(action: String, number: Int, pull_request: PullRequest) extends ProjectMessage with PRMessage
-  case class PushEvent(ref: String, before: String, after: String, created: Boolean, deleted: Boolean, forced: Boolean,
-                       base_ref: Option[String], commits: List[CommitInfo], head_commit: CommitInfo, repository: Repository, pusher: Author)
+  case class PushEvent(ref_name: String, distinct_commits: List[CommitInfo], repository: Repository) extends ProjectMessage
+//                        ref: String, before: String, after: String, created: Boolean, deleted: Boolean, forced: Boolean,  base_ref: Option[String], commits: List[CommitInfo], head_commit: CommitInfo, repository: Repository, pusher: Author)
   case class PullRequestReviewCommentEvent(action: String, pull_request: PullRequest, comment: PullRequestComment, repository: Repository)  extends ProjectMessage
   case class IssueCommentEvent(action: String, issue: Issue, comment: IssueComment, repository: Repository) extends ProjectMessage
 
@@ -109,7 +111,7 @@ import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
 // TODO: test against https://github.com/github/developer.github.com/tree/master/lib/webhooks
-trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self: core.Core with core.Configuration =>
+trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol with core.Configuration {
   private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtUser             : RJF[User]                          = jsonFormat1(User)
   implicit lazy val _fmtAuthor           : RJF[Author]                        = jsonFormat2(Author)
@@ -123,7 +125,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self:
   implicit lazy val _fmtMilestone        : RJF[Milestone]                     = jsonFormat9(Milestone.apply)
   implicit lazy val _fmtIssue            : RJF[Issue]                         = jsonFormat11(Issue)
 
-  implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat4(CommitInfo)
+  implicit lazy val _fmtCommitInfo       : RJF[CommitInfo]                    = jsonFormat5(CommitInfo)
   implicit lazy val _fmtCommit           : RJF[Commit]                        = jsonFormat3(Commit)
   implicit lazy val _fmtCommitStatus     : RJF[CommitStatus]                  = jsonFormat4(CommitStatus.apply)
   implicit lazy val _fmtCombiCommitStatus: RJF[CombiCommitStatus]             = jsonFormat(CombiCommitStatus, "state", "sha", "statuses", "total_count") // need to specify field names because we added methods to the case class..
@@ -132,7 +134,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self:
   implicit lazy val _fmtPullRequestComment: RJF[PullRequestComment]           = jsonFormat8(PullRequestComment)
 
   implicit lazy val _fmtPullRequestEvent : RJF[PullRequestEvent]              = jsonFormat3(PullRequestEvent)
-  implicit lazy val _fmtPushEvent        : RJF[PushEvent]                     = jsonFormat11(PushEvent)
+  implicit lazy val _fmtPushEvent        : RJF[PushEvent]                     = jsonFormat3(PushEvent)
   implicit lazy val _fmtPRCommentEvent   : RJF[PullRequestReviewCommentEvent] = jsonFormat4(PullRequestReviewCommentEvent)
   implicit lazy val _fmtIssueCommentEvent: RJF[IssueCommentEvent]             = jsonFormat4(IssueCommentEvent)
 
@@ -140,7 +142,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol { self:
   // implicit lazy val _fmtAuthApp          : RJF[AuthApp]                       = jsonFormat2(AuthApp)
 }
 
-trait GithubApiActions extends GithubJsonProtocol { self: core.Core with core.Configuration with core.HttpClient =>
+trait GithubApiActions extends GithubJsonProtocol with core.HttpClient {
   class GithubConnection(config: Config.Github) {
     import spray.http.{GenericHttpCredentials, Uri}
     import spray.httpx.SprayJsonSupport._

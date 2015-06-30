@@ -3,7 +3,7 @@ package jenkins
 
 import akka.event.Logging
 
-trait JenkinsService extends core.Core with JenkinsApi { self: core.HttpClient with core.Configuration =>
+trait JenkinsService extends JenkinsApi {
 
   def jenkinsEvent(jobState: JobState): String = jobState match {
     case JobState(name, _, BuildState(number, phase, parameters, scm, result, full_url, log)) =>

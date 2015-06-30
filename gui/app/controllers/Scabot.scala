@@ -45,6 +45,7 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
       case "issue_comment"               => handleWith(issueCommentEvent)
       case "pull_request_review_comment" => handleWith(pullRequestReviewCommentEvent)
       case "pull_request"                => handleWith(pullRequestEvent)
+      case "push"                        => handleWith(pushEvent)
       // case "status"                   => TODO: use this to propagate combined contexts -- problem: the (payload)[https://developer.github.com/v3/activity/events/types/#statusevent] does not specify the PR
     } match {
       case Some(Success(message)) => Ok(message)
