@@ -92,10 +92,9 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
         prActor(issue.number) ! comment
 
       case PushEvent(ref, commits, _) =>
-        for {
-          ms  <- milestoneForBranch(ref) // only build for master-like branches (we always have milestones that mention this ref for those)
-          res <- buildPushedCommits(new BaseRef(ref), commits)
-        } yield res
+        // only build for master-like branches (we always have milestones that mention this ref for those)
+        for(_ <- milestoneForBranch(ref))
+          buildPushedCommits(new BaseRef(ref), commits)
 
       // there are two cases, unfortunately:
       //   - PARAM_PR's value is an integer ==> assumed to be PR number,
@@ -265,6 +264,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       launcher
     }
 
+
     def postStatus(baseRef: BaseRef, jenkinsJobResult: JenkinsJobResult): Future[String] = {
       import jenkinsJobResult._
       (for {
@@ -278,8 +278,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
         case _: NoSuchElementException => s"No need to update status of $sha for context $name"
       }
     }
-
-
   }
 
   // for migration
