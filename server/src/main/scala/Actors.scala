@@ -107,16 +107,16 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
           bs      <- jenkinsApi.buildStatus(name, number)
           prParam <- Future { log.debug(s"Build status for $name #$number: $bs");  bs.parameters(PARAM_PR) }
           jobRes  = JenkinsJobResult(name, bs)
-          res     <-
+          _       <-
             Future { prParam.toInt } map { pr =>
               prActor(pr) ! jobRes
             } recover { case _: NumberFormatException =>
               for {
                 _   <- milestoneForBranch(prParam) // check prParam is a branch name we recognize
-                res <- postStatus(new BaseRef(prParam), jobRes)
-              } yield res
+                _   <- postStatus(new BaseRef(prParam), jobRes)
+              } yield ()
             }
-        } yield res
+        } yield ()
     }
 
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
