@@ -9,6 +9,8 @@
 package scabot
 package github
 
+import scabot.core.BaseRef
+
 trait GithubApi extends GithubApiTypes with GithubJsonProtocol with GithubApiActions
 
 // definitions in topo-order, no cycles in dependencies
@@ -84,8 +86,8 @@ trait GithubApiTypes extends core.Core {
 
   // TODO: factory method that caps state to 140 chars
   case class CommitStatus(state: String, context: Option[String] = None, description: Option[String] = None, target_url: Option[String] = None) extends HasState with HasContext {
-    def forJob(job: String, pull: PullRequest)(implicit lense: JobContextLense): Boolean = lense.contextForJob(job, pull) == context
-    def jobName(pull: PullRequest)(implicit lense: JobContextLense): Option[String] = context.flatMap(lense.jobForContext(_, pull))
+    def forJob(job: String, baseRef: BaseRef)(implicit lense: JobContextLense): Boolean = lense.contextForJob(job, baseRef) == context
+    def jobName(baseRef: BaseRef)(implicit lense: JobContextLense): Option[String] = context.flatMap(lense.jobForContext(_, baseRef))
   }
 
   case class IssueComment(body: String, user: Option[User] = None, created_at: Date = None, updated_at: Date = None, id: Option[Long] = None) extends PRMessage

@@ -12,6 +12,8 @@ import spray.httpx.unmarshalling._
 
 import scala.concurrent.{Promise, Future, ExecutionContext}
 
+class BaseRef(val name: String) extends AnyVal
+
 trait Core {
 
   // We need an ActorSystem not only for the actors that make up
@@ -41,12 +43,12 @@ trait Core {
   final val PARAM_LAST      = "_scabot_last" // TODO: temporary until we run real integration on the actual merge commit
 
   trait JobContextLense {
-    def contextForJob(job: String, pull: PullRequest): Option[String]
-    def jobForContext(context: String, pull: PullRequest): Option[String]
+    def contextForJob(job: String, baseRef: BaseRef): Option[String]
+    def jobForContext(context: String, baseRef: BaseRef): Option[String]
   }
 }
 
-trait Util {
+trait Util extends Core {
   def findFirstSequentially[T](futures: Stream[Future[T]])(p: T => Boolean): Future[T] = {
     val resultPromise = Promise[T]
     def loop(futures: Stream[Future[T]]): Unit =
