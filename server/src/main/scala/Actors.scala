@@ -110,7 +110,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
           combiCs <- fetchCommitStatus(commit.id)
           buildRes <- {
             val params = repoParams ++ commitParams(combiCs.sha, combiCs.sha == lastSha)
-            Future.sequence(jobsTodo(baseRef, combiCs, rebuild = false).map(launchBuild(params, baseRef, combiCs.sha, _)))
+            Future.sequence(jobsTodo(baseRef, combiCs, rebuild = false).map(launchBuild(combiCs.sha, baseRef, params)(_)))
           }
         } yield buildRes
       })
@@ -233,7 +233,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
     }
 
 
-    def launchBuild(params: Map[String, String], baseRef: BaseRef, sha: String, job: String): Future[String] = {
+    def launchBuild(sha: String, baseRef: BaseRef, params: Map[String, String])(job: String = mainValidationJob(baseRef)): Future[String] = {
       val status = commitStatus(job, new QueuedBuildStatus(params, None), baseRef)
 
       val launcher = for {
@@ -447,7 +447,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
               val params = jobParams(combiCs.sha, combiCs.sha == lastSha)
               if (synchOnly) synchBuildStatuses(params, baseRef, combiCs)
               else if (lastOnly && combiCs.sha != lastSha) Future.successful(List(s"Skipped ${combiCs.sha} on request"))
-              else Future.sequence(jobsTodo(baseRef, combiCs, rebuild = forceRebuild).map(launchBuild(params, baseRef, combiCs.sha, _)))
+              else Future.sequence(jobsTodo(baseRef, combiCs, rebuild = forceRebuild).map(launchBuild(combiCs.sha, baseRef, params)(_)))
             }
           } yield buildRes
         })
@@ -625,7 +625,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
         commits <- pullRequestCommits
         baseRef <- baseRefCached
         params  = jobParams(sha, sha == commits.last.sha) // safe to assume commits of a pr is nonEmpty
-        build <- launchBuild(params, baseRef, sha, mainValidationJob(baseRef))
+        build <- launchBuild(sha, baseRef, params)
       } yield build
 
       final val REBUILD_ALL = """^/rebuild""".r.unanchored
