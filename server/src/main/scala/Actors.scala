@@ -106,7 +106,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
           bs      <- jenkinsApi.buildStatus(name, number)
           prParam <- Future { bs.parameters(PARAM_PR) }
         } {
-          log.debug(s"Build status for $name #$number: $bs")
+          log.info(s"Build status for $name #$number: $bs")
           val jobRes = JenkinsJobResult(name, bs)
 
           try prActor(prParam.toInt) ! jobRes
@@ -270,10 +270,10 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       (for {
         currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(name, baseRef)).headOption)
         newStatus      = commitStatus(name, status, baseRef)
-        _             <- Future.successful(log.debug(s"New status (new? ${currentStatus != Some(newStatus)}) for $sha: $newStatus old: $currentStatus"))
+        _             <- Future.successful(log.info(s"New status (new? ${currentStatus != Some(newStatus)}) for $sha: $newStatus old: $currentStatus"))
         if currentStatus != Some(newStatus)
         posting       <- githubApi.postStatus(sha, newStatus)
-        _             <- Future.successful(log.debug(s"Posted status on $sha for $name $status:\n$posting"))
+        _             <- Future.successful(log.info(s"Posted status on $sha for $name $status:\n$posting"))
       } yield posting.toString).recover {
         case _: NoSuchElementException => s"No need to update status of $sha for context $name"
       }
