@@ -105,18 +105,18 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
         // fetch the state from jenkins -- the webhook doesn't pass in result correctly (???)
         for {
           bs      <- jenkinsApi.buildStatus(name, number)
-          prParam <- Future { log.debug(s"Build status for $name #$number: $bs");  bs.parameters(PARAM_PR) }
-          jobRes  = JenkinsJobResult(name, bs)
-          _       <-
-            Future { prParam.toInt } map { pr =>
-              prActor(pr) ! jobRes
-            } recover { case _: NumberFormatException =>
-              for {
-                _   <- milestoneForBranch(prParam) // check prParam is a branch name we recognize
-                _   <- postStatus(new BaseRef(prParam), jobRes)
-              } yield ()
-            }
-        } yield ()
+          prParam <- Future { bs.parameters(PARAM_PR) }
+        } {
+          log.debug(s"Build status for $name #$number: $bs")
+          val jobRes = JenkinsJobResult(name, bs)
+
+          try prActor(prParam.toInt) ! jobRes
+          catch { case _: NumberFormatException =>
+            // check prParam is a branch name we recognize
+            for(_ <- milestoneForBranch(prParam))
+              postStatus(new BaseRef(prParam), jobRes)
+          }
+        }
     }
 
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
