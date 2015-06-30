@@ -51,6 +51,10 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
 
   case object Synch extends ProjectMessage
 
+  case class JenkinsJobResult(name: String, status: BuildStatus) extends PRMessage {
+    lazy val sha = status.parameters(PARAM_REPO_REF)
+  }
+
   // represents a github project at github.com/${config.github.user}/${config.github.repo}
   class ProjectActor(val config: Config) extends Actor with ActorLogging with Building {
     lazy val githubApi  = new GithubConnection(config.github)
@@ -93,13 +97,26 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
           res <- buildPushedCommits(new BaseRef(ref), commits)
         } yield res
 
-      case js@JobState(_, _, bs) =>
-        // TODO: report failure
-        // TODO: handle jobs without PARAM_PR (commits built on push above)
+      // there are two cases, unfortunately:
+      //   - PARAM_PR's value is an integer ==> assumed to be PR number,
+      //   - otherwise, it's assumed to be the branch name of a job launched for a pushed commit (e.g., a merge or a direct push)
+      // TODO: report failure
+      case js@JobState(name, _, BuildState(number, _, _, _, _, _, _)) =>
+        // fetch the state from jenkins -- the webhook doesn't pass in result correctly (???)
         for {
-          prParam <- Try(bs.parameters(PARAM_PR)) // we only care about jobs we started, and which thus have this parameter (when restarted manually, they should be carried forward automatically)
-          prNum   <- Try(prParam.toInt)
-        } prActor(prNum) ! js
+          bs      <- jenkinsApi.buildStatus(name, number)
+          prParam <- Future { log.debug(s"Build status for $name #$number: $bs");  bs.parameters(PARAM_PR) }
+          jobRes  = JenkinsJobResult(name, bs)
+          res     <-
+            Future { prParam.toInt } map { pr =>
+              prActor(pr) ! jobRes
+            } recover { case _: NumberFormatException =>
+              for {
+                _   <- milestoneForBranch(prParam) // check prParam is a branch name we recognize
+                res <- postStatus(new BaseRef(prParam), jobRes)
+              } yield res
+            }
+        } yield res
     }
 
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
@@ -109,7 +126,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
         for {
           combiCs <- fetchCommitStatus(commit.id)
           buildRes <- {
-            val params = repoParams ++ commitParams(combiCs.sha, combiCs.sha == lastSha)
+            val params = jobParams(baseRef.name, combiCs.sha, combiCs.sha == lastSha)
             Future.sequence(jobsTodo(baseRef, combiCs, rebuild = false).map(launchBuild(combiCs.sha, baseRef, params)(_)))
           }
         } yield buildRes
@@ -187,13 +204,15 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       CommitStatus(state, Some(CommitStatusConstants.CLA), description = Some(msg.take(140)), target_url = Some(url))
     }
 
-
-    def repoParams: Map[String, String] = Map(PARAM_REPO_USER -> config.github.user, PARAM_REPO_NAME -> config.github.repo)
-
-    def commitParams(sha: String, lastCommit: Boolean): Map[String, String] = {
-      // TODO: temporary until we run real integration on the actual merge commit
-      (if (lastCommit) Map(PARAM_LAST -> "1") else Map.empty) ++ Map (PARAM_REPO_REF  -> sha )
-    }
+    type Parameters = Map[String, String]
+    def jobParams(pr: String, sha: String, lastCommit: Boolean): Parameters =
+      Map(PARAM_REPO_USER -> config.github.user,
+          PARAM_REPO_NAME -> config.github.repo,
+          PARAM_PR        -> pr,  // pr number or branch name (for pushed commit)
+          PARAM_REPO_REF  -> sha) ++ (
+        if (lastCommit) Map(PARAM_LAST -> "1")
+        else Map.empty
+      )
 
     // result is a subset of (config.jenkins.job and the contexts found in combiCommitStatus.statuses that are jenkins jobs)
     // if not rebuilding or gathering all jobs, this subset is either empty or the main job (if no statuses were found for it)
@@ -233,7 +252,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
     }
 
 
-    def launchBuild(sha: String, baseRef: BaseRef, params: Map[String, String])(job: String = mainValidationJob(baseRef)): Future[String] = {
+    def launchBuild(sha: String, baseRef: BaseRef, params: Parameters)(job: String = mainValidationJob(baseRef)): Future[String] = {
       val status = commitStatus(job, new QueuedBuildStatus(params, None), baseRef)
 
       val launcher = for {
@@ -245,6 +264,21 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       launcher onFailure { case e => log.warning(s"FAILED launchBuild($job, $baseRef, $sha, $params): $e") }
       launcher
     }
+
+    def postStatus(baseRef: BaseRef, jenkinsJobResult: JenkinsJobResult): Future[String] = {
+      import jenkinsJobResult._
+      (for {
+        currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(name, baseRef)).headOption)
+        newStatus      = commitStatus(name, status, baseRef)
+        _             <- Future.successful(log.debug(s"New status (new? ${currentStatus != Some(newStatus)}) for $sha: $newStatus old: $currentStatus"))
+        if currentStatus != Some(newStatus)
+        posting       <- githubApi.postStatus(sha, newStatus)
+        _             <- Future.successful(log.debug(s"Posted status on $sha for $name $status:\n$posting"))
+      } yield posting.toString).recover {
+        case _: NoSuchElementException => s"No need to update status of $sha for context $name"
+      }
+    }
+
 
   }
 
@@ -266,7 +300,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
     private def lastSha            = pullRequestCommits map (_.last.sha)
     private def issueComments      = githubApi.issueComments(pr)
 
-    def jobParams(sha: String, lastCommit: Boolean) = repoParams ++ Map(PARAM_PR -> pr.toString) ++ commitParams(sha, lastCommit)
+    def jobParams(sha: String, lastCommit: Boolean): Parameters = jobParams(pr.toString, sha, lastCommit)
 
     private var lastSynchronized: Date = None
 
@@ -294,15 +328,19 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
 
       // TODO: on CommitStatusEvent, propagateEarlierStati(pull)
 
-      case js@JobState(name, _, BuildState(number, phase, parameters, _, _, full_url, consoleLog)) =>
-        for { // fetch the state from jenkins -- the webhook doesn't pass in result correctly (???)
-          bs <- jenkinsApi.buildStatus(name, number)
-          _  <- Future.successful(log.debug(s"Build status for $name: $bs"))
-        } yield {
-          val sha = parameters(PARAM_REPO_REF)
-          log.info(s"Job state for $name [$number] @${sha.take(6)}: ${bs.status} at ${bs.url}") // result is not passed in correctly?
-          handleJobState(name, sha, bs)
-        }
+      case jenkinsJobResult@JenkinsJobResult(name, bs) =>
+        log.info(s"Job state for $name [${bs.number}] @${jenkinsJobResult.sha.take(6)}: ${bs.status} at ${bs.url}") // result is not passed in correctly?
+        val poster =
+          for {
+            baseRef <- baseRefCached
+            postRes <- postStatus(baseRef, jenkinsJobResult)
+            pull    <- pull
+            propRes <- propagateEarlierStati(pull, jenkinsJobResult.sha)
+          //        if !(bs.queued || bs.building || bs.success)
+          //        _       <- postFailureComment(pull, bs)
+          } yield propRes
+
+        poster onFailure { case e => log.warning(s"handleJobState($jenkinsJobResult) failed: $e") }
 
       case PullRequestComment(body, user, commitId, path, pos, created, update, id) =>
         log.info(s"Comment by $user on $commitId ($path:$pos):\n$body")
@@ -323,45 +361,23 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
     }
 
 
-
-    private def handleJobState(jobName: String, sha: String, bs: BuildStatus) = {
-      // not called -- see if we can live with less noise
-      def postFailureComment(pull: PullRequest, bs: BuildStatus) =
-        (for {
-          comments <- githubApi.commitComments(sha)
-          header    = s"Job $jobName failed for ${sha.take(8)}, ${bs.friendlyDuration} (ping @${pull.user.login}) [(results)](${bs.url}):\n"
-          if !comments.exists(_.body.startsWith(header))
-          details = s"If you suspect the failure was spurious, comment `/rebuild $sha` on PR ${pr} to retry.\n"+
-                     "NOTE: New commits are rebuilt automatically as they appear. A forced rebuild is only necessary for transient failures.\n"+
-                     "`/rebuild` without a sha will force a rebuild for all commits."
-          comment <- githubApi.postCommitComment(sha, PullRequestComment(header+details))
-        } yield comment.body).recover {
-          case _: NoSuchElementException => s"Avoiding double-commenting on $sha for $jobName"
-        }
-
-      val postStatus = (for {
-        baseRef    <- baseRefCached
-        currentStatus <- githubApi.commitStatus(sha).map(_.statuses.filter(_.forJob(jobName, baseRef)).headOption)
-        newStatus = commitStatus(jobName, bs, baseRef)
-        _       <- Future.successful(log.debug(s"New status (new? ${currentStatus != Some(newStatus)}) for $sha: $newStatus old: $currentStatus"))
-        if currentStatus != Some(newStatus)
-        posting <- githubApi.postStatus(sha, newStatus)
-        _       <- Future.successful(log.debug(s"Posted status on $sha for $jobName $bs:\n$posting"))
-        pull    <- pull
-        _       <- propagateEarlierStati(pull, sha)
-//        if !(bs.queued || bs.building || bs.success)
-//        _       <- postFailureComment(pull, bs)
-      } yield posting).recover {
-        case _: NoSuchElementException => s"No need to update status of $sha for context $jobName"
-      }
-
-      postStatus onFailure { case e => log.warning(s"handleJobState($jobName, ${bs.number}, $sha) failed: $e") }
-      postStatus
-    }
+//    // not called -- see if we can live with less noise
+//    def postFailureComment(pull: PullRequest, bs: BuildStatus) =
+//      (for {
+//        comments <- githubApi.commitComments(sha)
+//        header    = s"Job $jobName failed for ${sha.take(8)}, ${bs.friendlyDuration} (ping @${pull.user.login}) [(results)](${bs.url}):\n"
+//        if !comments.exists(_.body.startsWith(header))
+//        details = s"If you suspect the failure was spurious, comment `/rebuild $sha` on PR ${pr} to retry.\n"+
+//          "NOTE: New commits are rebuilt automatically as they appear. A forced rebuild is only necessary for transient failures.\n"+
+//          "`/rebuild` without a sha will force a rebuild for all commits."
+//        comment <- githubApi.postCommitComment(sha, PullRequestComment(header+details))
+//      } yield comment.body).recover {
+//        case _: NoSuchElementException => s"Avoiding double-commenting on $sha for $jobName"
+//      }
 
 
     // synch contexts assumed to correspond to jenkins jobs with the most recent result of the corresponding build of the jenkins job specified by the context
-    private def synchBuildStatuses(expected: Map[String, String], baseRef: BaseRef, combiCommitStatus: CombiCommitStatus): Future[List[String]] = {
+    private def synchBuildStatuses(expected: Parameters, baseRef: BaseRef, combiCommitStatus: CombiCommitStatus): Future[List[String]] = {
       case class GitHubReport(state: String, url: Option[String])
       def toReport(bs: BuildStatus) = GitHubReport(stateForBuild(bs), urlForBuild(bs))
 
@@ -624,8 +640,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       def rebuildSha(sha: String) = for {
         commits <- pullRequestCommits
         baseRef <- baseRefCached
-        params  = jobParams(sha, sha == commits.last.sha) // safe to assume commits of a pr is nonEmpty
-        build <- launchBuild(sha, baseRef, params)
+        build   <- launchBuild(sha, baseRef, jobParams(sha, sha == commits.last.sha))() // safe to assume commits of a pr is nonEmpty, so commits.last won't bomb
       } yield build
 
       final val REBUILD_ALL = """^/rebuild""".r.unanchored
