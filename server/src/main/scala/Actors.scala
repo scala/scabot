@@ -120,10 +120,10 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
 
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
     private def buildPushedCommits(baseRef: BaseRef, commits: List[CommitInfo]): Future[List[List[String]]] = {
-      val lastSha = commits.last.id // the merge commit, typically
+      val lastSha = commits.last.id.getOrElse("???") // the merge commit, typically
       Future.sequence(commits map { commit =>
         for {
-          combiCs <- fetchCommitStatus(commit.id)
+          combiCs  <- fetchCommitStatus(commit.id.get)
           buildRes <- {
             val params = jobParams(baseRef.name, combiCs.sha, combiCs.sha == lastSha)
             Future.sequence(jobsTodo(baseRef, combiCs, rebuild = false).map(launchBuild(combiCs.sha, baseRef, params)(_)))

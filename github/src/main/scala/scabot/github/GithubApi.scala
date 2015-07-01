@@ -61,7 +61,7 @@ trait GithubApiTypes extends core.Core {
   case class Issue(number: Int, state: String, title: String, body: Option[String], user: User, labels: List[Label],
                    assignee: Option[User], milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date)
 
-  case class CommitInfo(id: String, message: String, timestamp: Date, author: Author, committer: Author)
+  case class CommitInfo(id: Option[String], message: String, timestamp: Date, author: Author, committer: Author)
     // added: Option[List[String]], removed: Option[List[String]], modified: Option[List[String]]
   case class Commit(sha: String, commit: CommitInfo, url: Option[String] = None)
 
