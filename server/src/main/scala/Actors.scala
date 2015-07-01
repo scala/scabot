@@ -292,8 +292,8 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
 
     def baseRef(pull: PullRequest): BaseRef = new BaseRef(pull.base.ref)
 
-    private def pull = githubApi.pullRequest(pr)
-    private lazy val baseRefCached = pull.map(baseRef(_))
+    private def pull               = githubApi.pullRequest(pr)
+    private def pullBranch         = pull.map(baseRef(_))
     private def pullRequestCommits = githubApi.pullRequestCommits(pr)
     private def lastSha            = pullRequestCommits map (_.last.sha)
     private def issueComments      = githubApi.issueComments(pr)
@@ -330,7 +330,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
         log.info(s"Job state for $name [${bs.number}] @${jenkinsJobResult.sha.take(6)}: ${bs.status} at ${bs.url}") // result is not passed in correctly?
         val poster =
           for {
-            baseRef <- baseRefCached
+            baseRef <- pullBranch
             postRes <- postStatus(baseRef, jenkinsJobResult)
             pull    <- pull
             propRes <- propagateEarlierStati(pull, jenkinsJobResult.sha)
@@ -452,9 +452,10 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
     private def buildCommitsIfNeeded(baseRef: BaseRef, forceRebuild: Boolean = false, synchOnly: Boolean = false, lastOnly: Boolean = false): Future[List[List[String]]] = {
       for {
         commits <- pullRequestCommits
+        _ <- Future { log.debug(s"buildCommitsIfNeeded? ${baseRef.name} ${commits.map(_.sha.take(6))} force=$forceRebuild synch=$synchOnly") }
         lastSha  = commits.last.sha // safe to assume commits of a pr is nonEmpty
         results <- Future.sequence(commits map { commit =>
-          log.debug(s"Build commit? $commit force=$forceRebuild synch=$synchOnly")
+          log.debug(s"Build commit? $commit ")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
             buildRes <- {
@@ -637,7 +638,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       final val REBUILD_SHA = """^/rebuild (\w+)""".r.unanchored
       def rebuildSha(sha: String) = for {
         commits <- pullRequestCommits
-        baseRef <- baseRefCached
+        baseRef <- pullBranch
         build   <- launchBuild(sha, baseRef, jobParams(sha, sha == commits.last.sha))() // safe to assume commits of a pr is nonEmpty, so commits.last won't bomb
       } yield build
 
@@ -645,7 +646,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       def rebuildAll() =
         for {
           pull     <- pull
-          baseRef <- baseRefCached
+          baseRef <- pullBranch
           buildRes <- buildCommitsIfNeeded(baseRef, forceRebuild = true, lastOnly = lastOnly(pull.title))
         } yield buildRes
 
