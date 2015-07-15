@@ -24,7 +24,7 @@ trait GithubService extends GithubApi {
   }
 
   def pushEvent(ev: PushEvent): String = ev match {
-    case PushEvent(ref, commits, repository) =>
+    case PushEvent(_, _, repository) =>
       notifyProject(ev, repository)
   }
 

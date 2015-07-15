@@ -59,6 +59,8 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
   class ProjectActor(val config: Config) extends Actor with ActorLogging with Building {
     lazy val githubApi  = new GithubConnection(config.github)
     lazy val jenkinsApi = new JenkinsConnection(config.jenkins)
+    private val REFS_HEADS = "refs/heads/"
+
     import context._
 
     // find or create actor responsible for PR #`nb`
@@ -91,10 +93,11 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       case IssueCommentEvent("created", issue, comment, _) =>
         prActor(issue.number) ! comment
 
-      case PushEvent(ref, commits, _) =>
+      case PushEvent(ref, commits, _) if ref startsWith REFS_HEADS =>
         // only build for master-like branches (we always have milestones that mention this ref for those)
-        for(_ <- milestoneForBranch(ref))
-          buildPushedCommits(new BaseRef(ref), commits)
+        val branch = ref.drop(REFS_HEADS.length)
+        for(_ <- milestoneForBranch(branch))
+          buildPushedCommits(new BaseRef(branch), commits)
 
       // there are two cases, unfortunately:
       //   - PARAM_PR's value is an integer ==> assumed to be PR number,

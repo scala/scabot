@@ -96,8 +96,10 @@ trait GithubApiTypes extends core.Core {
                                 // diff_hunk, original_position, original_commit_id
 
   case class PullRequestEvent(action: String, number: Int, pull_request: PullRequest) extends ProjectMessage with PRMessage
-  case class PushEvent(ref_name: String, distinct_commits: List[CommitInfo], repository: Repository) extends ProjectMessage
-//                        ref: String, before: String, after: String, created: Boolean, deleted: Boolean, forced: Boolean,  base_ref: Option[String], commits: List[CommitInfo], head_commit: CommitInfo, repository: Repository, pusher: Author)
+  case class PushEvent(ref: String, commits: List[CommitInfo], repository: Repository) extends ProjectMessage
+  // TODO: https://github.com/scala/scabot/issues/46 --> ref_name is also included, but it comes at the end of the JSON payload, and for some reason we don't see it (chunking?)
+
+//                        ref_name: String, before: String, after: String, created: Boolean, deleted: Boolean, forced: Boolean,  base_ref: Option[String], commits: List[CommitInfo], head_commit: CommitInfo, repository: Repository, pusher: Author)
   case class PullRequestReviewCommentEvent(action: String, pull_request: PullRequest, comment: PullRequestComment, repository: Repository)  extends ProjectMessage
   case class IssueCommentEvent(action: String, issue: Issue, comment: IssueComment, repository: Repository) extends ProjectMessage
 
