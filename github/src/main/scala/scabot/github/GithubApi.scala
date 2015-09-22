@@ -6,6 +6,17 @@
 // of a user name and a repository name.  The user name might be an
 // individual's, but is more likely an organization name.
 
+// A note on pagination: many API calls only return the first n
+// results, where n is often 30 but may be 100 or a different
+// number depending on the particular call.  This can lead to
+// random-seeming failage when we happen to exceed the limit.
+// For now, we add `per_page` if the limit is found to be a
+// problem in practice.  per_page cannot be increased past
+// 100; if we ever find that's not enough in practice, we'd
+// have to add additional code to split the request into
+// multiple pages. relevant doc:
+// * https://developer.github.com/guides/traversing-with-pagination/
+
 package scabot
 package github
 
@@ -163,7 +174,8 @@ trait GithubApiActions extends GithubJsonProtocol with core.HttpClient {
     def pullRequests                               = p[List[PullRequest]] (Get(api("pulls")))
     def closedPullRequests                         = p[List[PullRequest]] (Get(api("pulls") withQuery Map("state" -> "closed")))
     def pullRequest(nb: Int)                       = p[PullRequest]       (Get(api("pulls" / nb)))
-    def pullRequestCommits(nb: Int)                = p[List[Commit]]      (Get(api("pulls" / nb / "commits")))
+    def pullRequestCommits(nb: Int)                = p[List[Commit]]      (Get(api("pulls" / nb / "commits")
+                                                                                 withQuery Map("per_page" -> "100")))
     def deletePRComment(id: String)                = px                (Delete(api("pulls" / "comments" / id)))
 
     def issueComments(nb: Int)                     = p[List[IssueComment]](Get(api("issues" / nb / "comments")))
