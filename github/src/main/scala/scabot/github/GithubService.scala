@@ -7,7 +7,6 @@ import scala.util.{Success, Failure}
 
 
 trait GithubService extends GithubApi {
-  import spray.httpx.SprayJsonSupport._
 
   private lazy val UserRepo = """([^/]+)/(.+)""".r
   def notifyProject(ev: ProjectMessage, repository: Repository): String = {
