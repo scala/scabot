@@ -1,8 +1,6 @@
 package scabot
 package jenkins
 
-import akka.event.Logging
-
 trait JenkinsService extends JenkinsApi {
 
   def jenkinsEvent(jobState: JobState): String = jobState match {
