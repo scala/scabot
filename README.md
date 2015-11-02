@@ -22,6 +22,9 @@ It can be summoned (immediately!) through certain commands, posted as pull reque
   - `/synch`: make sure that commit stati are in synch with the actual builds on the [CI server](https://scala-ci.typesafe.com).
   - `/nothingtoseehere`: mark commits green without actually running CI on them
 
+### PR Title Modifiers
+  - `[ci: last-only]`: include anywhere in the PR title to avoid verifying all commits, limiting CI to the last one
+
 ## Admin
 For ssh access to the server running the bot, this assumes you're using our [dev machine setup](https://github.com/scala/scala-jenkins-infra/blob/master/README.md#dev-machine-convenience).
 
