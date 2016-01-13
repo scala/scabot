@@ -20,6 +20,7 @@ It can be summoned (immediately!) through certain commands, posted as pull reque
   - `/rebuild`: rebuild failed jobs for all commits
   - `/rebuild $sha`: rebuild failed jobs for a given commit
   - `/synch`: make sure that commit stati are in synch with the actual builds on the [CI server](https://scala-ci.typesafe.com).
+  - `/nothingtoseehere`: magically un-fail spurious failed jobs, adding the notice "Failure overridden. Nothing to see here." These aren't the droids you're looking for.
 
 ## Admin
 For ssh access to the server running the bot, this assumes you're using our [dev machine setup](https://github.com/scala/scala-jenkins-infra/blob/master/README.md#dev-machine-convenience).
