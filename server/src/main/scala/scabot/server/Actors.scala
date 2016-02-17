@@ -352,7 +352,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
     // requires pull.number == pr
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
       // TODO: make configurable
-      if (config.github.user == "scala") checkCLA(pull)
+      if (config.github.checkCLA) checkCLA(pull)
       checkMilestone(pull)
       checkLGTM(pull)
       propagateEarlierStati(pull)
