@@ -9,8 +9,8 @@ jdk:
   - oraclejdk8
 notifications:
   email:
-    - adriaan.moors@typesafe.com
-    - seth@tisue.net
+    - adriaan.moors@lightbend.com
+    - seth.tisue@lightbend.com
 cache:
   directories:
   - $HOME/.m2/repository/
