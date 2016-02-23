@@ -17,7 +17,7 @@ import scala.util.Try
 /**
  * Created by adriaan on 1/15/15.
  */
-trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.TypesafeApi with DynamoDb with core.Util {
+trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.LightbendApi with DynamoDb with core.Util {
   def system: ActorSystem
 
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
@@ -291,7 +291,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
   class PullRequestActor(pr: Int, val config: Config) extends Actor with ActorLogging with Building {
     lazy val githubApi   = new GithubConnection(config.github)
     lazy val jenkinsApi  = new JenkinsConnection(config.jenkins)
-    lazy val typesafeApi = new TypesafeConnection()
+    lazy val lightbendApi = new LightbendConnection()
 
     def baseRef(pull: PullRequest): BaseRef = new BaseRef(pull.base.ref)
 
@@ -557,7 +557,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
       val claKind  = "Scala"
 
       def checkCla = {
-        val fetcher = typesafeApi.checkCla(user).map(_._1) // ignore status code for now (404 is returned if CLA is not signed...)
+        val fetcher = lightbendApi.checkCla(user).map(_._1) // ignore status code for now (404 is returned if CLA is not signed...)
         fetcher.onFailure { case e => log.warning(s"Couldn't get CLA for ${user}: $e")}
         fetcher
       }
