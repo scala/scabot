@@ -20,7 +20,7 @@ trait TypesafeApiActions extends TypesafeJsonProtocol with core.HttpClient {
     import spray.httpx.SprayJsonSupport._
     import spray.client.pipelining._
 
-    private implicit def connection = setupConnection("www.typesafe.com")
+    private implicit def connection = setupConnection("www.lightbend.com")
 
     def checkCla(user: String) = pWithStatus[CLARecord](Get(Uri("/contribute/cla/scala/check" / user)))
   }

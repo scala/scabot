@@ -552,7 +552,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with typesafe.Type
     private def signedCLA(pull: PullRequest, last: String) = {
       val user = pull.user.login
       // TODO make these configurable:
-      val signUrl  = "https://www.typesafe.com/contribute/cla/scala"
+      val signUrl  = "https://www.lightbend.com/contribute/cla/scala"
       val checkUrl = s"$signUrl/check/$user"
       val claKind  = "Scala"
 
