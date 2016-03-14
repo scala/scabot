@@ -83,7 +83,7 @@ trait GithubApiTypes extends core.Core {
 
   case class Issue(number: Int, state: String, title: String, body: Option[String], user: User, labels: List[Label],
                    assignee: Option[User], milestone: Option[Milestone], created_at: Date, updated_at: Date, closed_at: Date) {
-    override def toString = $"Issue #$number"
+    override def toString = s"Issue #$number"
   }
 
   case class CommitInfo(id: Option[String], message: String, timestamp: Date, author: Author, committer: Author)

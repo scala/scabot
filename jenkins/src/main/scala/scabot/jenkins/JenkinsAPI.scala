@@ -40,7 +40,7 @@ trait JenkinsApiTypes extends core.Configuration {
     // avoid humongeous replies that would require more spray sophistication (chunking etc)
     val XPath = "?tree=number,result,building,duration,actions[parameters[*]],url"
   }
-  case class BuildStatus(number: Int,
+  case class BuildStatus(number: Option[Int],
                          result: Option[String],
                          building: Boolean,
                          duration: Long,
@@ -68,10 +68,10 @@ trait JenkinsApiTypes extends core.Configuration {
     def paramsMatch(expectedArgs: Map[String, String]): Boolean =
       parameters.filterKeys(expectedArgs.isDefinedAt) == expectedArgs
 
-    override def toString = s"[$number] $status. $friendlyDuration"
+    override def toString = s"[${number.getOrElse("?")}] $status. $friendlyDuration"
   }
 
-  class QueuedBuildStatus(actions: Option[List[Action]], url: Option[String]) extends BuildStatus(0, None, false, 0, actions, url) {
+  class QueuedBuildStatus(actions: Option[List[Action]], url: Option[String]) extends BuildStatus(None, None, false, 0, actions, url) {
     def this(params: Map[String, String], url: Option[String]) {
       this(Some(List(Action(Some(params.toList.map { case (k, v) => Param(k, Some(v))})))), url)
     }

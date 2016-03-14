@@ -330,7 +330,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
       // TODO: on CommitStatusEvent, propagateEarlierStati(pull)
 
       case jenkinsJobResult@JenkinsJobResult(name, bs) =>
-        log.info(s"Job state for $name [${bs.number}] @${jenkinsJobResult.sha.take(6)}: ${bs.status} at ${bs.url}") // result is not passed in correctly?
+        log.info(s"Job state for $name [${bs.number.getOrElse("?")}] @${jenkinsJobResult.sha.take(6)}: ${bs.status} at ${bs.url}") // result is not passed in correctly?
         val poster =
           for {
             baseRef <- pullBranch
