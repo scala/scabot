@@ -2,15 +2,14 @@ name := "scabot"
 
 organization in ThisBuild := "com.lightbend"
 version      in ThisBuild := "0.1.0"
-scalaVersion in ThisBuild := "2.11.7"
+scalaVersion in ThisBuild := "2.11.8"
 
 scalacOptions in ThisBuild ++=
   Seq("-feature", "-deprecation", "-Xfatal-warnings")
 
 lazy val deps: Seq[sbt.Def.Setting[_]] =  Seq(
   libraryDependencies ++= Seq(
-    "com.typesafe.akka" %% "akka-actor"     % "2.3.14",
-    "com.typesafe.akka" %% "akka-kernel"    % "2.3.14",
+    "com.typesafe.akka" %% "akka-actor"     % "2.3.16",
     "io.spray"          %% "spray-client"   % "1.3.2",
     "io.spray"          %% "spray-json"     % "1.3.1"
   ))
