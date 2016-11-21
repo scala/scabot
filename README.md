@@ -19,7 +19,7 @@ It can be summoned (immediately!) through certain commands, posted as pull reque
 ### Commands
   - `/rebuild`: rebuild failed jobs for all commits
   - `/rebuild $sha`: rebuild failed jobs for a given commit
-  - `/synch`: make sure that commit stati are in synch with the actual builds on the [CI server](https://scala-ci.typesafe.com).
+  - `/sync`: make sure that commit stati are in sync with the actual builds on the [CI server](https://scala-ci.typesafe.com).
   - `/nothingtoseehere`: mark commits green without actually running CI on them
 
 ### PR Title Modifiers
