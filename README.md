@@ -39,10 +39,10 @@ Scabot runs on the CI server under the `scabot` account. We [push to deploy](../
 
 ## Command line interface (experimental)
 The Scabot code includes a suite of methods corresponding to various
-GitHub API calls, returning instances of case classes representing the
+API calls, returning instances of case classes representing the
 JSON responses from the API calls.  You can use these methods from the
 Scala REPL to do your own queries. Here is a sample session.  Note
-that you must supply a
+that for API calls that interact with GitHub, you must supply a
 [personal GitHub API access token](https://help.github.com/articles/creating-an-access-token-for-command-line-use/)
 when starting sbt.
 
@@ -54,7 +54,11 @@ Welcome to Scala ...
 scala> val c = new scabot.cli.CLI("scala")
 c: scabot.cli.CLI = ...
 
-scala> val pulls = c.await(c.api.pullRequests)
+scala> c.await(c.lightbend.checkCla("som-snytt"))
+res0: (c.CLARecord, spray.http.StatusCode) =
+  (CLARecord(som-snytt,true,Some(1.0),1.0),200 OK)
+
+scala> val pulls = c.await(c.github.pullRequests)
 pulls: List[c.PullRequest] =
 List(PullRequest(...), ...)
 

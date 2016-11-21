@@ -5,7 +5,7 @@ import scala.concurrent.{ Future, Await }
 import scala.concurrent.duration.Duration
 
 class CLI(configName: String)
-    extends github.GithubApi
+    extends github.GithubApi with lightbend.LightbendApi
     with core.Configuration with core.HttpClient with core.Core {
 
   override def configFile =
@@ -18,8 +18,11 @@ class CLI(configName: String)
   override val system =
     akka.actor.ActorSystem()
 
-  lazy val api =
+  lazy val github =
     new GithubConnection(configs(configName).github)
+
+  lazy val lightbend =
+    new LightbendConnection()
 
   def await[T](f: Future[T]): T =
     Await.result(f, Duration.Inf)
