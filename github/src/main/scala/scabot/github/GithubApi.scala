@@ -62,6 +62,7 @@ trait GithubApiTypes extends core.Core {
                          head: GitRef, base: GitRef, user: User, merged: Option[Boolean], mergeable: Option[Boolean], merged_by: Option[User]) {
     override def toString = s"${base.repo}#$number"
   }
+  case class Reviewers(reviewers: List[String])
                          //, comments: Int, commits: Int, additions: Int, deletions: Int, changed_files: Int)
 
   case class Label(name: String, color: Option[String] = None, url: Option[String] = None) {
@@ -147,6 +148,7 @@ trait GithubJsonProtocol extends GithubApiTypes with DefaultJsonProtocol with co
   implicit lazy val _fmtGitRef           : RJF[GitRef]                        = jsonFormat5(GitRef)
 
   implicit lazy val _fmtPullRequest      : RJF[PullRequest]                   = jsonFormat14(PullRequest)
+  implicit lazy val _fmtReviewers        : RJF[Reviewers]                     = jsonFormat1(Reviewers)
 
   implicit lazy val _fmtLabel            : RJF[Label]                         = jsonFormat3(Label)
   implicit lazy val _fmtMilestone        : RJF[Milestone]                     = jsonFormat9(Milestone.apply)
@@ -191,6 +193,8 @@ trait GithubApiActions extends GithubJsonProtocol with core.HttpClient {
     def pullRequestCommits(nb: Int)                = p[List[Commit]]      (Get(api("pulls" / nb / "commits")
                                                                                  withQuery Map("per_page" -> "100")))
     def deletePRComment(id: String)                = px                (Delete(api("pulls" / "comments" / id)))
+    def requestReview(nb: Int, reviewers: Reviewers) = px                   (Post(api("pulls" / nb / "requested_reviewers"), reviewers)~>
+                                                                                    addHeader("Accept", "application/vnd.github.black-cat-preview+json"))
 
     def issueComments(nb: Int)                     = p[List[IssueComment]](Get(api("issues" / nb / "comments")))
     def postIssueComment(nb: Int, c: IssueComment) = p[IssueComment]     (Post(api("issues" / nb / "comments"), c))
