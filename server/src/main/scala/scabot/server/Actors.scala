@@ -598,6 +598,11 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
       import Commands._
 
       if (isLGTM(comment)) synchReviewedLabel(true)
+      else if (isReviewRequest(comment)) {
+        val REVIEW_BY(reviewer) = comment.body.toLowerCase
+        log.debug(s"Review requested from $reviewer")
+        requestReview(reviewer)
+      }
       else if (!hasCommand(comment.body)) {
         log.debug(s"No command in $comment")
         Future.successful("No Command found")
@@ -634,6 +639,13 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
     object Commands {
       // purposefully only at start of line to avoid conditional LGTMs
       def isLGTM(comment: IssueComment): Boolean = comment.body.startsWith("LGTM")
+
+      final val REVIEW_BY = """^review (?:by )?@(\w+)""".r.unanchored
+      def isReviewRequest(comment: IssueComment): Boolean = comment.body.toLowerCase match {
+        case REVIEW_BY(_) => true
+        case _ => false
+      }
+      def requestReview(user: String) = githubApi.requestReview(pr, Reviewers(List(user)))
 
       def hasCommand(body: String) = body.startsWith("/")
 
