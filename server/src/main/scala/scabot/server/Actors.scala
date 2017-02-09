@@ -43,6 +43,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
   class GithubActor extends Actor with ActorLogging {
     override def receive: Receive = {
       case StartProjectActors(configs)   =>
+        log.info(s"Reading ${configs.size} configs.")
         configs map { case (name, config) =>
           context.actorOf(Props(new ProjectActor(config)), projectActorName(config.github.user, config.github.repo))
         } foreach { _ ! Synch }
