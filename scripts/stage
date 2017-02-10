@@ -3,4 +3,4 @@
 source /usr/local/share/jvm/jvm-select
 jvmSelect openjdk 8
 
-sbt update gui/stage
+sbt update gui/assembly

@@ -17,7 +17,12 @@ lazy val deps: Seq[sbt.Def.Setting[_]] =  Seq(
 lazy val amazonDeps: Seq[sbt.Def.Setting[_]] =  Seq(
   libraryDependencies += "com.amazonaws" % "aws-java-sdk" % "1.9.13")
 
+
 lazy val guiSettings: Seq[sbt.Def.Setting[_]] = Seq(
+  assemblyJarName in assembly := "scabot.jar",
+  mainClass in assembly := Some("play.core.server.ProdServerStart"),
+  fullClasspath in assembly += Attributed.blank(PlayKeys.playPackageAssets.value),
+  assemblyExcludedJars in assembly := (fullClasspath in assembly).value filter {_.data.getName.startsWith("commons-logging")},
   routesGenerator := InjectedRoutesGenerator
 )
 
