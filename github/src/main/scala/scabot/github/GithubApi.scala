@@ -194,7 +194,7 @@ trait GithubApiActions extends GithubJsonProtocol with core.HttpClient {
                                                                                  withQuery Map("per_page" -> "100")))
     def deletePRComment(id: String)                = px                (Delete(api("pulls" / "comments" / id)))
     def requestReview(nb: Int, reviewers: Reviewers) = px                   (Post(api("pulls" / nb / "requested_reviewers"), reviewers)~>
-                                                                                    addHeader("Accept", "application/vnd.github.black-cat-preview+json"))
+           /** https://developer.github.com/changes/2016-12-14-reviews-api/ */  addHeader("Accept", "application/vnd.github.black-cat-preview+json"))
 
     def issueComments(nb: Int)                     = p[List[IssueComment]](Get(api("issues" / nb / "comments")))
     def postIssueComment(nb: Int, c: IssueComment) = p[IssueComment]     (Post(api("issues" / nb / "comments"), c))
