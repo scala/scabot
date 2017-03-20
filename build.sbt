@@ -4,6 +4,11 @@ organization in ThisBuild := "com.lightbend"
 version      in ThisBuild := "0.1.0"
 scalaVersion in ThisBuild := "2.11.8"
 
+// native packaging settings
+maintainer           := "Adriaan Moors <adriaan@lightbend.com>"
+packageDescription   := "Scala Bot"
+packageSummary       := "Automates stuff on GitHub"
+
 scalacOptions in ThisBuild ++=
   Seq("-feature", "-deprecation", "-Xfatal-warnings")
 
@@ -25,20 +30,6 @@ lazy val guiSettings: Seq[sbt.Def.Setting[_]] = Seq(
   assemblyExcludedJars in assembly := (fullClasspath in assembly).value filter {_.data.getName.startsWith("commons-logging")},
   routesGenerator := InjectedRoutesGenerator
 )
-
-// TODO: why do we need to define this explicitly
-// this is the root project, aggregating all sub projects
-lazy val root = Project(
-    id   = "root",
-    base = file("."),
-    // configure your native packaging settings here
-    settings = Seq(
-        maintainer           := "Adriaan Moors <adriaan@lightbend.com>",
-        packageDescription   := "Scala Bot",
-        packageSummary       := "Automates stuff on Github"),
-    // always run all commands on each sub project
-    aggregate = Seq(core, amazon, github, cli, jenkins, server)
-) dependsOn(gui) // this does the actual aggregation
 
 lazy val core      = project settings (deps: _*)
 lazy val github    = project dependsOn (core)
