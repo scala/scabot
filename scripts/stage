@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
-source /usr/local/share/jvm/jvm-select
-jvmSelect openjdk 8
+# the new jenkins master only has java 8 installed, and no jvm-select script
+# source /usr/local/share/jvm/jvm-select
+# jvmSelect openjdk 8
 
 sbt update gui/assembly
