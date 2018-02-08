@@ -122,6 +122,19 @@ import spray.json.{RootJsonFormat, DefaultJsonProtocol}
 
 // TODO: can we make this more debuggable?
 trait JenkinsJsonProtocol extends JenkinsApiTypes with DefaultJsonProtocol {
+  implicit object nonjudgmentalStringJsonFormat extends spray.json.JsonFormat[String] {
+    import  spray.json._
+
+    def write(x: String) = {
+      require(x ne null)
+      JsString(x)
+    }
+    def read(value: JsValue) = value match {
+      case JsString(x) => x
+      case x => x.toString // whatevs
+    }
+  }
+
   private type RJF[x] = RootJsonFormat[x]
   implicit lazy val _fmtJob         : RJF[Job        ] = jsonFormat7(Job.apply)
   implicit lazy val _fmtBuild       : RJF[Build      ] = jsonFormat2(Build)
