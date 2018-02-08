@@ -409,6 +409,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
 
       def synchLinked(context: String, report: GitHubReport) = for {
         url <- Future { report.url.get }
+        _ = log.debug(s"Checking linked at $url")
         bs  <- checkLinked(url)
         if bs.paramsMatch(expected)
       } yield
@@ -426,8 +427,9 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
       val syncher = Future.sequence(githubReports.toList.map { case (context, report) =>
         (for {
           cs <-
-            synchMostRecent(context, report) recoverWith { case _: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException =>
-              synchLinked(context, report) recover { case _: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException =>
+            synchMostRecent(context, report) recoverWith { case _: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException | _ : spray.httpx.PipelineException =>
+              synchLinked(context, report) recover { case e@(_: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException | _ : spray.httpx.PipelineException) =>
+                  log.debug(s"Synch($context, $report) failed with $e")
                   Some(CommitStatus(CommitStatusConstants.FAILURE, Some(context),
                     description = Some("No corresponding job found on Jenkins. Failed to launch? Try /rebuild"),
                     target_url = report.url))
