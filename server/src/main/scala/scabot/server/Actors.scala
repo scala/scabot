@@ -428,8 +428,8 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
           cs <-
             synchMostRecent(context, report) recoverWith { case _: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException =>
               synchLinked(context, report) recover { case _: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException =>
-                  Some(CommitStatus(CommitStatusConstants.SUCCESS, Some(context),
-                    description = Some("WARNING: no corresponding job found on Jenkins. Obsolete?"),
+                  Some(CommitStatus(CommitStatusConstants.FAILURE, Some(context),
+                    description = Some("No corresponding job found on Jenkins. Failed to launch? Try /rebuild"),
                     target_url = report.url))
               }}
           res <- githubApi.postStatus(combiCommitStatus.sha, cs.get)
