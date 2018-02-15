@@ -57,7 +57,9 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
   def jenkins() = PlayAction(BodyParsers.parse.json) { implicit request =>
     handleWith(jenkinsEvent) match {
       case Success(message) => Ok(message)
-      case Failure(ex) => InternalServerError(ex.getMessage)
+      case Failure(ex) =>
+        system.log.error(s"Couldn't handle Jenkins event ${request.body}.\n Fail: $ex")
+        InternalServerError(ex.getMessage)
     }
   }
 
