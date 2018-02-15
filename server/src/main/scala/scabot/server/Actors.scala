@@ -147,7 +147,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
       mss <- githubApi.repoMilestones()
       ms <- Future {
         val msOpt = mss.find(_.mergeBranch == Some(branch))
-        log.debug(s"Looking for milestone for $branch: $msOpt")
+        log.info(s"Looking for milestone for $branch: $msOpt")
         msOpt.get
       }
     } yield ms
@@ -231,7 +231,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
         case (Some(job), stati) => (job, considerStati(stati))
       }
 
-      log.debug(s"shouldConsider for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, consider main job: ${shouldConsider.get(mainJobForPull)}): $shouldConsider")
+      log.info(s"shouldConsider for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild, consider main job: ${shouldConsider.get(mainJobForPull)}): $shouldConsider")
 
       val allToConsider = shouldConsider.collect{case (job, true) => job}
 
@@ -249,7 +249,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
         if (jobs.isEmpty) "No need to build"
         else s"Found jobs ${jobs.mkString(", ")} TODO"
 
-      log.debug(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName(baseRef))}")
+      log.info(s"$jobMsg for ${combiCommitStatus.sha.take(6)} (rebuild=$rebuild), based on ${combiCommitStatus.total_count} statuses:\n${combiCommitStatus.statuses.groupBy(_.jobName(baseRef))}")
 
       jobs
     }
@@ -409,7 +409,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
 
       def synchLinked(context: String, report: GitHubReport) = for {
         url <- Future { report.url.get }
-        _ = log.debug(s"Checking linked at $url")
+        _ = log.info(s"Checking linked at $url")
         bs  <- checkLinked(url)
         if bs.paramsMatch(expected)
       } yield
@@ -429,7 +429,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
           cs <-
             synchMostRecent(context, report) recoverWith { case _: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException | _ : spray.httpx.PipelineException =>
               synchLinked(context, report) recover { case e@(_: spray.httpx.UnsuccessfulResponseException | _ : NoSuchElementException | _ : spray.httpx.PipelineException) =>
-                  log.debug(s"Synch($context, $report) failed with $e")
+                  log.info(s"Synch($context, $report) failed with $e")
                   Some(CommitStatus(CommitStatusConstants.FAILURE, Some(context),
                     description = Some("No corresponding job found on Jenkins. Failed to launch? Try /rebuild"),
                     target_url = report.url))
@@ -457,10 +457,10 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
     private def buildCommitsIfNeeded(baseRef: BaseRef, forceRebuild: Boolean = false, synchOnly: Boolean = false, lastOnly: Boolean = false): Future[List[List[String]]] = {
       for {
         commits <- pullRequestCommits
-        _ <- Future { log.debug(s"buildCommitsIfNeeded? ${baseRef.name} ${commits.map(_.sha.take(6))} force=$forceRebuild synch=$synchOnly") }
+        _ <- Future { log.info(s"buildCommitsIfNeeded? ${baseRef.name} ${commits.map(_.sha.take(6))} force=$forceRebuild synch=$synchOnly") }
         lastSha  = commits.last.sha // safe to assume commits of a pr is nonEmpty
         results <- Future.sequence(commits map { commit =>
-          log.debug(s"Build commit? $commit ")
+          log.info(s"Build commit? ${commit.sha.take(6)} ")
           for {
             combiCs  <- fetchCommitStatus(commit.sha)
             buildRes <- {
@@ -524,7 +524,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
           issue <- githubApi.issue(pr)
           if issue.milestone.isEmpty
         } yield {
-          log.debug(s"Setting milestone to ${milestone.title}")
+          log.info(s"Setting milestone to ${milestone.title}")
           githubApi.setMilestone(pr, milestone.number)
         }
       }
@@ -603,7 +603,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
       if (isLGTM(comment)) synchReviewedLabel(true)
       else if (isReviewRequest(comment)) {
         val REVIEW_BY(reviewer) = comment.body.toLowerCase
-        log.debug(s"Review requested from $reviewer")
+        log.info(s"Review requested from $reviewer")
         requestReview(reviewer)
       }
       else if (!hasCommand(comment.body)) {
@@ -629,11 +629,11 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
         } yield res).recover {
           case _: NoSuchElementException =>
             val msg = s"Already handled $comment"
-            log.debug(msg)
+            log.info(msg)
             msg
           case _: MatchError             =>
             val msg = s"Unknown command in $comment"
-            log.debug(msg)
+            log.warning(msg)
             msg
         }
       }

@@ -5,7 +5,7 @@ trait JenkinsService extends JenkinsApi {
 
   def jenkinsEvent(jobState: JobState): String = jobState match {
     case JobState(name, _, BuildState(number, phase, parameters, scm, result, full_url, log)) =>
-      system.log.info(s"Job $name [$number]: $phase ($result) at $full_url.\n  Scm: scm\n  Params: $parameters\n $log")
+      system.log.info(s"Jenkins notification $name [$number]: $phase ($result) at $full_url.\n  Scm: scm\n  Params: $parameters\n $log")
 
       {
         for {
