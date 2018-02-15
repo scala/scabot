@@ -58,7 +58,7 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
     handleWith(jenkinsEvent) match {
       case Success(message) => Ok(message)
       case Failure(ex) =>
-        system.log.error(s"Couldn't handle Jenkins event ${request.body}.\n Fail: $ex")
+        system.log.error(s"Couldn't handle Jenkins event: ${request.body}.\n Fail: $ex")
         InternalServerError(ex.getMessage)
     }
   }
