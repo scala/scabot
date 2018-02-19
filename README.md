@@ -14,7 +14,7 @@ It can be summoned (immediately!) through certain commands, posted as pull reque
   - Set milestone of a PR based on its target branch.
   - Let us know whether a contributor has signed the Scala CLA.
   - Add reviewer request when there's a comment like "review by @authorityfigure"
-  - Add "reviewed" label when there's a comment starting with "LGTM"
+    (obsolete feature, we use GitHub's built-in reviewing features instead now)
   - For its ambitions, check out [Scabot's issues](../../issues).
 
 ### Commands

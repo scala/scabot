@@ -354,7 +354,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
       if (config.github.checkCLA) checkCLA(pull)
       checkMilestone(pull)
-      checkLGTM(pull)
       propagateEarlierStati(pull)
       // don't exec commands when synching, or we'll keep executing the /sync that triggered this handlePR execution
       if (!synchOnly) execCommands(pull)
@@ -529,19 +528,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
         }
       }
 
-    // REVIEWED
-    private def hasLabelNamed(name: String) = githubApi.labels(pr).map(_.exists(_.name == name))
-    private def synchReviewedLabel(hasLGTM: Boolean) = for {
-      hasReviewedLabel <- hasLabelNamed("reviewed")
-    } yield { // TODO react to labeled/unlabeled event on webhhook
-      if (hasLGTM) { if (!hasReviewedLabel) githubApi.addLabel(pr, List(Label("reviewed"))) }
-      else if (hasReviewedLabel) githubApi.deleteLabel(pr, "reviewed")
-    }
-
-    private def checkLGTM(pull: PullRequest) = for {
-      hasLGTM <- issueComments.map(_.exists(Commands.isLGTM))
-    } yield synchReviewedLabel(hasLGTM)
-
     // CLA
     // last commit has successful most recent status under the CLA context
     private def successfulCLA(pull: PullRequest, last: String) = for {
@@ -600,8 +586,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
     private def handleComment(comment: IssueComment): Future[Any] = {
       import Commands._
 
-      if (isLGTM(comment)) synchReviewedLabel(true)
-      else if (isReviewRequest(comment)) {
+      if (isReviewRequest(comment)) {
         val REVIEW_BY(reviewer) = comment.body.toLowerCase
         log.info(s"Review requested from $reviewer")
         requestReview(reviewer)
@@ -640,8 +625,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
     }
 
     object Commands {
-      // purposefully only at start of line to avoid conditional LGTMs
-      def isLGTM(comment: IssueComment): Boolean = comment.body.startsWith("LGTM")
 
       final val REVIEW_BY = """^review (?:by )?@(\w+)""".r.unanchored
       def isReviewRequest(comment: IssueComment): Boolean = comment.body.toLowerCase match {
