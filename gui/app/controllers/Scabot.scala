@@ -2,13 +2,20 @@ package controllers
 
 import akka.actor.ActorSystem
 import javax.inject.Inject
-import play.api.mvc.{ Action => PlayAction, _ }
+
+import play.api.http.LazyHttpErrorHandler
+import play.api.http.Status.REQUEST_ENTITY_TOO_LARGE
+import play.api.libs.iteratee.{Cont, Done, Input, Iteratee, Traversable}
+import play.api.mvc.{Action => PlayAction, _}
 import scabot.github.GithubService
 import scabot.jenkins.JenkinsService
 import scabot.core
 import scabot.server.Actors
 import scabot.lightbend.LightbendApi
+import spray.json.ParserInput.ByteArrayBasedParserInput
 import spray.json._
+
+import scala.concurrent.Future
 import scala.util._
 
 class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubService with JenkinsService with LightbendApi with core.Configuration with core.HttpClient with Actors {
@@ -40,7 +47,7 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
   //  team_add  Any time a team is added or modified on a Repository.
   //  watch Any time a User watches a Repository.
 
-  def github() = PlayAction(BodyParsers.parse.json) { implicit request =>
+  def github() = PlayAction(sprayBodyParser) { implicit request =>
     request.headers.get("X-GitHub-Event").map {
       case "issue_comment"               => handleWith(issueCommentEvent)
       case "pull_request_review_comment" => handleWith(pullRequestReviewCommentEvent)
@@ -54,7 +61,7 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
     }
   }
 
-  def jenkins() = PlayAction(BodyParsers.parse.json) { implicit request =>
+  def jenkins() = PlayAction(sprayBodyParser) { implicit request =>
     handleWith(jenkinsEvent) match {
       case Success(message) => Ok(message)
       case Failure(ex) =>
@@ -63,7 +70,17 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
     }
   }
 
-  def handleWith[T](handler: T => String)(implicit reader: JsonReader[T], request: Request[play.api.libs.json.JsValue]) =
-    Try(handler(reader.read(request.body.toString.parseJson)))
+  private def sprayBodyParser: BodyParser[JsValue] =
+    BodyParsers.parse.raw(memoryThreshold = 640 * 1024 /*should be enough to keep most requests in memory...*/).mapM {
+      buffer =>
+        val parsed =
+          Future { JsonParser(new ByteArrayBasedParserInput(buffer.asBytes().get)) }
+        parsed.onFailure{ case ex => system.log.error(s"Fail in spray body parser: $ex") }
+        parsed.onSuccess{ case jsv => system.log.debug(s"Received JSON: $jsv") }
+        parsed
+    }
+
+  def handleWith[T](handler: T => String)(implicit reader: JsonReader[T], request: Request[JsValue]): Try[String] =
+    Try(handler(reader.read(request.body)))
 
 }
