@@ -20,7 +20,7 @@ lazy val deps: Seq[sbt.Def.Setting[_]] =  Seq(
   ))
 
 lazy val amazonDeps: Seq[sbt.Def.Setting[_]] =  Seq(
-  libraryDependencies += "com.amazonaws" % "aws-java-sdk" % "1.9.13")
+  libraryDependencies += "com.amazonaws" % "aws-java-sdk" % "1.9.40")
 
 
 lazy val guiSettings: Seq[sbt.Def.Setting[_]] = Seq(
