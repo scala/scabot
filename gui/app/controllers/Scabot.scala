@@ -48,7 +48,7 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
   //  watch Any time a User watches a Repository.
 
   def github() = PlayAction(sprayBodyParser) { implicit request =>
-    request.headers.get("X-GitHub-Event").map {
+    request.headers.get("X-GitHub-Event").collect {
       case "issue_comment"               => handleWith(issueCommentEvent)
       case "pull_request_review_comment" => handleWith(pullRequestReviewCommentEvent)
       case "pull_request"                => handleWith(pullRequestEvent)
