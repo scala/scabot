@@ -41,7 +41,7 @@ trait GithubApiTypes extends core.Core {
 
     def jenkinsContext(ctx: String) = ctx match {
       case COMBINED | REVIEWED | CLA => false
-      case _ => true
+      case _ => !ctx.contains("travis-ci")
     }
   }
   import CommitStatusConstants._
