@@ -14,7 +14,7 @@ scalacOptions in ThisBuild ++=
 
 lazy val deps: Seq[sbt.Def.Setting[_]] =  Seq(
   libraryDependencies ++= Seq(
-    "com.typesafe.akka" %% "akka-actor"     % "2.3.16",
+    "com.typesafe.akka" %% "akka-actor"     % "2.5.19",
     "io.spray"          %% "spray-client"   % "1.3.4",
     "io.spray"          %% "spray-json"     % "1.3.4"
   ))
