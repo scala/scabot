@@ -1,7 +1,0 @@
-@(brokenDownPrs: Map[String, List[Dashboard.ReportRow]])
-
-@main("Das Dashboard") {
-	@for((cat, prs) <- brokenDownPrs) {
-		@prList(prs, Some(cat))
-	}
-}
