@@ -16,7 +16,7 @@ lazy val deps: Seq[sbt.Def.Setting[_]] =  Seq(
   libraryDependencies ++= Seq(
     "com.typesafe.akka" %% "akka-actor"     % "2.3.16",
     "io.spray"          %% "spray-client"   % "1.3.4",
-    "io.spray"          %% "spray-json"     % "1.3.4"
+    "io.spray"          %% "spray-json"     % "1.3.5"
   ))
 
 lazy val amazonDeps: Seq[sbt.Def.Setting[_]] =  Seq(
