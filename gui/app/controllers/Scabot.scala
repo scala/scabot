@@ -84,6 +84,6 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
     Try(handler(reader.read(request.body)))
 
   def index = PlayAction {
-    Ok(views.html.index())
+    Ok("ohi scabot")
   }
 }
