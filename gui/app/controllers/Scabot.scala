@@ -83,4 +83,7 @@ class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubS
   def handleWith[T](handler: T => String)(implicit reader: JsonReader[T], request: Request[JsValue]): Try[String] =
     Try(handler(reader.read(request.body)))
 
+  def index = PlayAction {
+    Ok("ohi scabot")
+  }
 }
