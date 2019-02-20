@@ -2,7 +2,7 @@ name := "scabot"
 
 organization in ThisBuild := "com.lightbend"
 version      in ThisBuild := "0.1.0"
-scalaVersion in ThisBuild := "2.11.8"
+scalaVersion in ThisBuild := "2.11.12"
 
 // native packaging settings
 maintainer           := "Adriaan Moors <adriaan@lightbend.com>"
