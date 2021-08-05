@@ -15,7 +15,7 @@
   
   <logger name="scabot" level="DEBUG" /> <!-- log scabot's inner workings -->
 
-  <root level="DEBUG">
+  <root level="WARN">
     <appender-ref ref="ASYNCSTDOUT" />
   </root>
 
