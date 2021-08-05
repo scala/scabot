@@ -36,7 +36,7 @@ Scabot runs on the CI server under the `scabot` account. We [push to deploy](../
 `ssh jenkins-master`, and `tail -f ~scabot/log/application.log`
 
 ### Restart (last resort)
-`ssh jenkins-master`, and `su scabot -c 'killall -1 java'`. The process will be restarted by [runit_service](https://docs.chef.io/inspec/resources/runit_service/)
+`ssh jenkins-master`, and `journalctl -u scabot -b -f`.
 
 ## Command line interface (experimental)
 The Scabot code includes a suite of methods corresponding to various
@@ -100,3 +100,4 @@ Old-timers may fondly remember Scabot's predecessor, the [Scala build kitteh](ht
 
 ## Contributing
 Yes, please!
+

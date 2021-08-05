@@ -1,3 +1,3 @@
 #!/bin/sh
 
-killall -1 java ||: # only java process run by scabot -- will be restarted by runit
+killall -1 java ||: # only java process run by scabot -- will be restarted by systemd
