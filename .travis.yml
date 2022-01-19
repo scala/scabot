@@ -8,7 +8,6 @@ jdk:
   - openjdk8
 notifications:
   email:
-    - adriaan.moors@lightbend.com
     - seth.tisue@lightbend.com
 cache:
   directories:
