@@ -33,10 +33,12 @@ For ssh access to the server running the bot, this assumes you're using our [dev
 Scabot runs on the CI server under the `scabot` account. We [push to deploy](../../issues/10). (The deployment process could maybe be redone at some point using sbt-native-packager's JavaServerAppPackaging (see https://github.com/sbt/sbt-native-packager/issues/521) -- or whatever Play folks usually use, now that Scabot is a Play/Akka app, not just Akka anymore.)
 
 ### Logs
-`ssh jenkins-master`, and `tail -f ~scabot/log/application.log`
+`ssh jenkins-master`, and `journalctl -u scabot` (add `-f` to see the tail, perhaps with `-n 1000` to see more lines)
 
 ### Restart (last resort)
-`ssh jenkins-master`, and `journalctl -u scabot -b -f`.
+`ssh jenkins-master`, and `systemctl restart scabot`
+
+To check if everything seems okay after restart, `journalctl -u scabot -b -f` to follow (`-f`) the logs since last boot (`-b`)
 
 ## Command line interface (experimental)
 The Scabot code includes a suite of methods corresponding to various
