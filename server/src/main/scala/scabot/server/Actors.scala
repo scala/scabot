@@ -498,20 +498,32 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
       }
 
       if (lastOnly(pull.title)) Future.successful(Nil)
-      else (for {
-        commits       <- pullRequestCommits
+      else {
+        val temp = for {
+          commits       <- pullRequestCommits
+          lastSha = commits.lastOption.map(_.sha).getOrElse("")
+        } yield (commits, lastSha)
 
-        lastSha = commits.lastOption.map(_.sha).getOrElse("")
-        if commits.nonEmpty && commits.tail.nonEmpty && causeSha != lastSha // ignore if caused by an update to the last commit
+        (for {
+          (commits, lastSha) <- temp
+          if commits.nonEmpty && commits.tail.nonEmpty && causeSha != lastSha // ignore if caused by an update to the last commit
 
-        earlierStati  <- Future.sequence(commits.init.map(c => githubApi.commitStatus(c.sha)))
+          earlierStati  <- Future.sequence(commits.init.map(c => githubApi.commitStatus(c.sha)))
 
-        lastStss      <- githubApi.commitStatus(lastSha).map(_.statuses)
+          lastStss      <- githubApi.commitStatus(lastSha).map(_.statuses)
 
-        posting       <- combine(earlierStati, lastSha, lastStss)
-
-      } yield posting).recover { case _: NoSuchElementException => Nil }
+          posting       <- combine(earlierStati, lastSha, lastStss)
+        } yield posting).recoverWith {
+          case _: NoSuchElementException => {
+            for {
+              (commits, lastSha) <- temp
+              if commits.nonEmpty && commits.tail.isEmpty
+              posting <- postLast(lastSha, "Single commit Pull Request", SUCCESS, List[CommitStatus]())
+            } yield List(posting)
+          }
+        } recover { case _: NoSuchElementException => Nil }
     }
+  }
 
 
     // MILESTONE
