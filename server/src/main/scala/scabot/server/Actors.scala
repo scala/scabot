@@ -540,7 +540,7 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
     private def signedCLA(pull: PullRequest, last: String) = {
       val user = pull.user.login
       // TODO make these configurable:
-      val signUrl  = "https://www.lightbend.com/contribute/cla/scala"
+      val signUrl  = "https://contribute.akka.io/contribute/cla/scala"
       val checkUrl = s"$signUrl/check/$user"
       val claKind  = "Scala"
 
