@@ -5,7 +5,7 @@ version      in ThisBuild := "0.1.0"
 scalaVersion in ThisBuild := "2.11.12"
 
 // native packaging settings
-maintainer           := "Adriaan Moors <adriaan@lightbend.com>"
+maintainer           := "Seth Tisue <seth.tisue@akka.io>"
 packageDescription   := "Scala Bot"
 packageSummary       := "Automates stuff on GitHub"
 
@@ -34,8 +34,7 @@ lazy val guiSettings: Seq[sbt.Def.Setting[_]] = Seq(
 lazy val core      = project settings (deps: _*)
 lazy val github    = project dependsOn (core)
 lazy val jenkins   = project dependsOn (core)
-lazy val lightbend = project dependsOn (core)
-lazy val cli       = project dependsOn (github, lightbend)
+lazy val cli       = project dependsOn (github)
 lazy val amazon    = project dependsOn (core) settings (amazonDeps: _*)
-lazy val server    = project dependsOn (amazon, github, jenkins, lightbend)
+lazy val server    = project dependsOn (amazon, github, jenkins)
 lazy val gui       = project dependsOn (server) enablePlugins(PlayScala) settings (guiSettings: _*)

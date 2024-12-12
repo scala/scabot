@@ -37,10 +37,9 @@ trait GithubApiTypes extends core.Core {
     // context to enforce that last commit is green only if all prior commits are also green
     final val COMBINED = "combined"
     final val REVIEWED = "reviewed"
-    final val CLA      = "cla"
 
     def jenkinsContext(ctx: String) = ctx match {
-      case COMBINED | REVIEWED | CLA => false
+      case COMBINED | REVIEWED => false
       case _ => !ctx.contains("travis-ci")
     }
   }

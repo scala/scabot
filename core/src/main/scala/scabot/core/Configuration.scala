@@ -11,7 +11,7 @@ trait Configuration extends Core {
 
   object Config {
     // only PRs targeting a branch in `branches` will be monitored
-    case class Github(user: String, repo: String, branches: Set[String], lastCommitOnly: Boolean, checkCLA: Boolean, host: String, token: String)
+    case class Github(user: String, repo: String, branches: Set[String], lastCommitOnly: Boolean, host: String, token: String)
     // the launched job will be BuildHelp.mainValidationJob(pull),
     // for example, if `jobSuffix` == "validate-main", we'll launch "scala-2.11.x-validate-main" for repo "scala", PR target "2.11.x"
     case class Jenkins(jobSuffix: String, host: String, user: String, token: String)
@@ -63,10 +63,9 @@ trait Configuration extends Core {
         repo  <- configString(c.get("repo"))
         branches  <- configStringList(c.get("branches"))
         lastCommitOnly <- configBoolean(c.get("lastCommitOnly")) orElse Some(false) // default for scala/scala
-        checkCLA <- configBoolean(c.get("checkCLA")) orElse Some(true) // default for scala/scala
         host  <- configString(c.get("host"))
         token <- configString(c.get("token")).filter(_.nonEmpty) orElse defaultGitHubToken
-      } yield Github(user, repo, branches.toSet, lastCommitOnly, checkCLA, host, token)
+      } yield Github(user, repo, branches.toSet, lastCommitOnly, host, token)
 
     def c2c(c: ConfigObject): Option[Config] =
       for {
