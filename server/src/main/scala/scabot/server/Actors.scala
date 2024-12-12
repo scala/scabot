@@ -17,7 +17,7 @@ import scala.util.Try
 /**
  * Created by adriaan on 1/15/15.
  */
-trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.LightbendApi with DynamoDb with core.Util {
+trait Actors extends github.GithubApi with jenkins.JenkinsApi with DynamoDb with core.Util {
   def system: ActorSystem
 
   private lazy val githubActor = system.actorOf(Props(new GithubActor), "github")
@@ -198,15 +198,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
     def combiStatus(state: String, msg: String): CommitStatus =
       CommitStatus(state, Some(CommitStatusConstants.COMBINED), description = Some(msg.take(140)))
 
-    def claStatus(signed: Option[Boolean], user: String, claKind: String, checkUrl: String, signUrl: String): CommitStatus = {
-      val (state, msg, url) = signed match {
-        case None        => (CommitStatusConstants.PENDING, s"Checking whether @$user signed the $claKind CLA.", checkUrl)
-        case Some(true)  => (CommitStatusConstants.SUCCESS, s"@$user signed the $claKind CLA. Thanks!", checkUrl)
-        case Some(false) => (CommitStatusConstants.FAILURE, s"@$user, please sign the $claKind CLA by clicking on 'Details' -->", signUrl)
-      }
-      CommitStatus(state, Some(CommitStatusConstants.CLA), description = Some(msg.take(140)), target_url = Some(url))
-    }
-
     type Parameters = Map[String, String]
     def jobParams(pr: String, sha: String, lastCommit: Boolean): Parameters =
       Map(PARAM_REPO_USER -> config.github.user,
@@ -292,7 +283,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
   class PullRequestActor(pr: Int, val config: Config) extends Actor with ActorLogging with Building {
     lazy val githubApi   = new GithubConnection(config.github)
     lazy val jenkinsApi  = new JenkinsConnection(config.jenkins)
-    lazy val lightbendApi = new LightbendConnection()
 
     def baseRef(pull: PullRequest): BaseRef = new BaseRef(pull.base.ref)
 
@@ -352,7 +342,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
 
     // requires pull.number == pr
     private def handlePR(action: String, pull: PullRequest, synchOnly: Boolean = false) = {
-      if (config.github.checkCLA) checkCLA(pull)
       checkMilestone(pull)
       propagateEarlierStati(pull)
       // don't exec commands when synching, or we'll keep executing the /sync that triggered this handlePR execution
@@ -527,40 +516,6 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with lightbend.Lig
           githubApi.setMilestone(pr, milestone.number)
         }
       }
-
-    // CLA
-    // last commit has successful most recent status under the CLA context
-    private def successfulCLA(pull: PullRequest, last: String) = for {
-      lastStatus <- fetchCommitStatus(last)
-      claStatus  <- Future { lastStatus(CommitStatusConstants.CLA).get.head }
-      if claStatus.success
-    } yield claStatus
-
-    // user signed CLA -- update commit status
-    private def signedCLA(pull: PullRequest, last: String) = {
-      val user = pull.user.login
-      // TODO make these configurable:
-      val signUrl  = "https://contribute.akka.io/contribute/cla/scala"
-      val checkUrl = s"$signUrl/check/$user"
-      val claKind  = "Scala"
-
-      def checkCla = {
-        val fetcher = lightbendApi.checkCla(user).map(_._1) // ignore status code for now (404 is returned if CLA is not signed...)
-        fetcher.onFailure { case e => log.warning(s"Couldn't get CLA for ${user}: $e")}
-        fetcher
-      }
-
-      for {
-        pending   <- githubApi.postStatus(last, claStatus(None, user, claKind, checkUrl, signUrl))
-        claRecord <- checkCla
-        res       <- githubApi.postStatus(last, claStatus(Some(claRecord.signed), user, claKind, checkUrl, signUrl))
-      } yield res
-    }
-
-    private def checkCLA(pull: PullRequest) = for {
-      last  <- lastSha
-      res   <- successfulCLA(pull, last) fallbackTo signedCLA(pull, last)
-    } yield res
 
     // commands
     private def execCommands(pullRequest: PullRequest) = for {

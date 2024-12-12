@@ -11,14 +11,13 @@ import scabot.github.GithubService
 import scabot.jenkins.JenkinsService
 import scabot.core
 import scabot.server.Actors
-import scabot.lightbend.LightbendApi
 import spray.json.ParserInput.ByteArrayBasedParserInput
 import spray.json._
 
 import scala.concurrent.Future
 import scala.util._
 
-class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubService with JenkinsService with LightbendApi with core.Configuration with core.HttpClient with Actors {
+class Scabot @Inject() (val system: ActorSystem) extends Controller with GithubService with JenkinsService with core.Configuration with core.HttpClient with Actors {
 
   override def configFile = new java.io.File(sys.props("scabot.config.file"))
 
