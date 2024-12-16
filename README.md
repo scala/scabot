@@ -31,6 +31,8 @@ For ssh access to the server running the bot, this assumes you're using our [dev
 ### Deploy
 Scabot runs on the CI server under the `scabot` account. We [push to deploy](../../issues/10). (The deployment process could maybe be redone at some point using sbt-native-packager's JavaServerAppPackaging (see https://github.com/sbt/sbt-native-packager/issues/521) -- or whatever Play folks usually use, now that Scabot is a Play/Akka app, not just Akka anymore.)
 
+(If push-to-deploy isn't working, [this](https://github.com/scala/scala/pull/10957#issuecomment-2540813129) might help.)
+
 ### Logs
 `ssh jenkins-master`, and `journalctl -u scabot` (add `-f` to see the tail, perhaps with `-n 1000` to see more lines)
 
