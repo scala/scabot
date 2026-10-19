@@ -125,7 +125,9 @@ trait Actors extends github.GithubApi with jenkins.JenkinsApi with DynamoDb with
     // determine jobs needed to be built based on the commit's status, synching github's view with build statuses reported by jenkins
     private def buildPushedCommits(baseRef: BaseRef, commits: List[CommitInfo]): Future[List[List[String]]] = {
       val lastSha = commits.last.id.getOrElse("???") // the merge commit, typically
-      Future.sequence(commits map { commit =>
+      // like for PRs, validate only the merge commit, not each commit the merge brings in
+      val toBuild = if (config.github.lastCommitOnly) commits.takeRight(1) else commits
+      Future.sequence(toBuild map { commit =>
         for {
           combiCs  <- fetchCommitStatus(commit.id.get)
           buildRes <- {
